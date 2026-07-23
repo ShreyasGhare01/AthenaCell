@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AthenaCell - Research Sandbox</title>
+    <!-- Import beautiful serif header and sans-serif typography fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="/static/chart.js"></script>
+    <style>
+        :root {
+            --bg-cream: #F7F3E9;
+            --header-black: #1A1A1A;
+            --gold-accent: #C9A44C;
+            --gold-hover: #AB8530;
+            --card-white: #FFFFFF;
+            --border-color: #E2DDD5;
+            --text-dark: #2C2C2C;
+            --text-muted: #7A756D;
+            --warning-red: #D9534F;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-cream);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            color: var(--text-dark);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: var(--header-black);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 2rem;
+            border-bottom: 3px solid var(--gold-accent);
+        }
+
+        .header-logo-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .header-logo {
+            width: 45px;
+            height: auto;
+        }
+
+        .header-title h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.8rem;
+            letter-spacing: 1px;
+            color: var(--bg-cream);
+        }
+
+        .run-status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border: 1px solid var(--gold-accent);
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #5CB85C;
+            border-radius: 50%;
+        }
+
+        .status-dot.idle {
+            background-color: #777;
+        }
+
+        .status-dot.evolving {
+            background-color: var(--gold-accent);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.5; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.5; }
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            flex: 1;
+            padding: 1.5rem;
+            gap: 1.5rem;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .sidebar-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .content-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .card {
+            background-color: var(--card-white);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.02);
+            position: relative;
+        }
+
+        .card h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.35rem;
+            margin-bottom: 1rem;
+            border-bottom: 1.5px solid var(--bg-cream);
+            padding-bottom: 0.5rem;
+            color: var(--header-black);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-gold {
+            background-color: var(--gold-accent);
+            color: var(--header-black);
+            border: 2px solid var(--header-black);
+            padding: 0.6rem 1.2rem;
+            font-weight: 700;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-gold:hover {
+            background-color: var(--gold-hover);
+            transform: translateY(-1px);
+        }
+
+        .run-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .run-item {
+            padding: 0.6rem 0.8rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            transition: background-color 0.15s ease;
+        }
+
+        .run-item:hover, .run-item.active {
+            background-color: var(--bg-cream);
+            border-color: var(--gold-accent);
+        }
+
+        .generation-list {
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .generation-tab {
+            padding: 0.4rem 1rem;
+            border: 1px solid var(--border-color);
+            background-color: var(--card-white);
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .generation-tab.active {
+            background-color: var(--gold-accent);
+            border-color: var(--header-black);
+            color: var(--header-black);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: var(--bg-cream);
+            color: var(--text-dark);
+            font-weight: 700;
+        }
+
+        tr.clickable-row {
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+
+        tr.clickable-row:hover, tr.clickable-row.selected {
+            background-color: #FAF8F2;
+        }
+
+        .gap-warning {
+            color: var(--warning-red);
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.8rem;
+        }
+
+        /* Detail Modal Overlay Panel */
+        .drawer-overlay {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            background: rgba(0,0,0,0.4);
+            display: none;
+            z-index: 1000;
+        }
+
+        .drawer {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 700px;
+            background-color: var(--card-white);
+            box-shadow: -5px 0 25px rgba(0,0,0,0.15);
+            border-left: 3px solid var(--gold-accent);
+            display: flex;
+            flex-direction: column;
+            z-index: 1001;
+            transform: translateX(100%);
+            transition: transform 0.3s ease-out;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .drawer.open {
+            transform: translateX(0);
+        }
+
+        .drawer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            border-bottom: 2px solid var(--bg-cream);
+            padding-bottom: 1rem;
+        }
+
+        .drawer-header h3 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.5rem;
+            color: var(--header-black);
+        }
+
+        .close-btn {
+            font-size: 1.8rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-muted);
+        }
+
+        .rules-sentences {
+            background-color: var(--bg-cream);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .rules-sentences strong {
+            color: var(--gold-hover);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 250px;
+            margin-bottom: 1.5rem;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .metric-box {
+            background-color: var(--bg-cream);
+            border: 1px solid var(--border-color);
+            padding: 0.8rem;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .metric-val {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--header-black);
+        }
+
+        .metric-lbl {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .upload-area {
+            border: 2px dashed var(--gold-accent);
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .upload-area:hover {
+            background-color: var(--bg-cream);
+        }
+
+        .preview-box {
+            background-color: #FAF8F2;
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 6px;
+            margin-top: 1rem;
+            display: none;
+            font-size: 0.85rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-logo-container">
+            <img class="header-logo" src="/static/owl.png" alt="AthenaCell Owl Mascot">
+            <div class="header-title">
+                <h1>AthenaCell</h1>
+            </div>
+        </div>
+        <div class="run-status-indicator" id="runStatusContainer">
+            <div class="status-dot idle" id="statusDot"></div>
+            <span id="statusLabel">Idle</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Sidebar controls and configuration -->
+        <div class="sidebar-panel">
+            <div class="card">
+                <h2>Control Board</h2>
+                <button class="btn-gold" style="width:100%; margin-bottom: 1rem;" onclick="triggerRun()">Launch Evolution</button>
+                <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
+                    Starts a modular multi-fold walk-forward strategy evolution across the run tickers. Runs are human-triggered only.
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Run History</h2>
+                <ul class="run-list" id="runListContainer">
+                    <!-- Runs list populated dynamically -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- Leaderboard & Main Content Panels -->
+        <div class="content-panel">
+            <div class="card">
+                <h2>Generations</h2>
+                <div class="generation-list" id="generationListContainer">
+                    <!-- Generation tabs -->
+                </div>
+
+                <h2>Strategy Leaderboard</h2>
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Strategy Name/ID</th>
+                                <th>Avg Val Sharpe</th>
+                                <th>Max Drawdown</th>
+                                <th>Win Rate</th>
+                                <th>Train-vs-Val Gap</th>
+                                <th>Lineage</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leaderboardBody">
+                            <!-- Strategies list -->
+                            <tr>
+                                <td colspan="7" style="text-align:center; color: var(--text-muted);">Select a run & generation above to load the strategies.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Research Library Ingestion</h2>
+                <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                    <span style="font-weight: 600;">Drag or click here to upload a research paper (.txt, .pdf)</span>
+                    <input type="file" id="fileInput" style="display:none;" onchange="handleFileUpload(event)">
+                </div>
+                <div class="preview-box" id="previewBox">
+                    <h4 style="margin-bottom: 0.5rem; font-family: 'Playfair Display', serif;">Extracted Candidate Hypothesis Strategy Preview:</h4>
+                    <pre id="previewJson" style="font-family: monospace; white-space: pre-wrap;"></pre>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Strategy Detail Drawer Overlay -->
+    <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+    <div class="drawer" id="strategyDrawer">
+        <div class="drawer-header">
+            <h3 id="drawerStratName">Strategy Detail</h3>
+            <button class="close-btn" onclick="closeDrawer()">&times;</button>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="metric-box">
+                <div class="metric-val" id="detailSharpe">0.0</div>
+                <div class="metric-lbl">Avg Sharpe</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-val" id="detailDrawdown">0.0%</div>
+                <div class="metric-lbl">Max Drawdown</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-val" id="detailWinRate">0.0%</div>
+                <div class="metric-lbl">Win Rate</div>
+            </div>
+        </div>
+
+        <h4 style="font-family: 'Playfair Display', serif; margin-bottom: 0.5rem;">Extracted Ruleset (Readable Sentences)</h4>
+        <div class="rules-sentences" id="rulesSentencesContainer">
+            <!-- Rules rendered text -->
+        </div>
+
+        <h4 style="font-family: 'Playfair Display', serif; margin-bottom: 0.5rem;">Fold Equity Curve Chart (Train vs. Validation Period)</h4>
+        <div class="chart-container">
+            <canvas id="equityChartCanvas"></canvas>
+        </div>
+
+        <h4 style="font-family: 'Playfair Display', serif; margin-bottom: 0.5rem;">Daily Simulated Trade Log</h4>
+        <div style="overflow-y:auto; max-height: 200px; border: 1px solid var(--border-color); border-radius: 6px;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Ticker</th>
+                        <th>Entry Date</th>
+                        <th>Entry Price</th>
+                        <th>Exit Date</th>
+                        <th>Exit Price</th>
+                        <th>Profit %</th>
+                        <th>Exit Reason</th>
+                    </tr>
+                </thead>
+                <tbody id="tradeLogBody">
+                    <!-- Daily trades log -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let currentRunId = null;
+        let currentGenId = null;
+        let selectedStratId = null;
+        let myChart = null;
+
+        // Initialize WebSockets
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/evolution`);
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            const statusDot = document.getElementById("statusDot");
+            const statusLabel = document.getElementById("statusLabel");
+
+            if (data.status === "evolving") {
+                statusDot.className = "status-dot evolving";
+                statusLabel.innerText = `Evolving Gen ${data.generation}/${data.total_generations} - Best Sharpe: ${data.best_sharpe.toFixed(2)}`;
+                loadRunsList();
+            } else if (data.status === "completed") {
+                statusDot.className = "status-dot";
+                statusLabel.innerText = "Complete";
+                loadRunsList();
+            } else if (data.status === "failed") {
+                statusDot.className = "status-dot idle";
+                statusLabel.innerText = "Failed";
+                alert("Evolution run encountered an error: " + data.error);
+            }
+        };
+
+        // Fetch Runs on load
+        window.addEventListener("load", () => {
+            loadRunsList();
+        });
+
+        // Copy downloaded Chart.js if loaded from static or fall back safely
+        function loadRunsList() {
+            fetch("/api/runs")
+                .then(r => r.json())
+                .then(runs => {
+                    const container = document.getElementById("runListContainer");
+                    container.innerHTML = "";
+                    runs.forEach((r, idx) => {
+                        const li = document.createElement("li");
+                        li.className = `run-item ${currentRunId === r.id ? 'active' : ''}`;
+                        li.innerHTML = `
+                            <strong>${r.name}</strong>
+                            <span style="font-size:0.75rem; color:var(--text-muted);">${r.status}</span>
+                        `;
+                        li.onclick = () => selectRun(r.id);
+                        container.appendChild(li);
+
+                        // Select latest automatically if none selected
+                        if (idx === 0 && !currentRunId) {
+                            selectRun(r.id);
+                        }
+                    });
+                });
+        }
+
+        function selectRun(runId) {
+            currentRunId = runId;
+            document.querySelectorAll(".run-item").forEach(el => el.classList.remove("active"));
+            loadGenerations(runId);
+        }
+
+        function loadGenerations(runId) {
+            fetch(`/api/runs/${runId}/generations`)
+                .then(r => r.json())
+                .then(gens => {
+                    const container = document.getElementById("generationListContainer");
+                    container.innerHTML = "";
+                    gens.forEach((g, idx) => {
+                        const btn = document.createElement("button");
+                        btn.className = `generation-tab ${currentGenId === g.id ? 'active' : ''}`;
+                        btn.innerText = `Gen ${g.generation_number}`;
+                        btn.onclick = () => selectGeneration(g.id, btn);
+                        container.appendChild(btn);
+
+                        if (idx === gens.length - 1 && !currentGenId) {
+                            btn.click();
+                        }
+                    });
+                });
+        }
+
+        function selectGeneration(genId, btnEl) {
+            currentGenId = genId;
+            document.querySelectorAll(".generation-tab").forEach(el => el.classList.remove("active"));
+            if (btnEl) btnEl.classList.add("active");
+
+            loadStrategies(genId);
+        }
+
+        function loadStrategies(genId) {
+            fetch(`/api/generations/${genId}/strategies`)
+                .then(r => r.json())
+                .then(strats => {
+                    const tbody = document.getElementById("leaderboardBody");
+                    tbody.innerHTML = "";
+                    if (strats.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-muted);">No strategies evaluated in this generation.</td></tr>`;
+                        return;
+                    }
+                    strats.forEach((s, idx) => {
+                        const tr = document.createElement("tr");
+                        tr.className = `clickable-row ${selectedStratId === s.id ? 'selected' : ''}`;
+                        tr.onclick = () => showStrategyDetail(s.id, tr);
+
+                        // Check train vs validation gap indicator warning (gap > 1.0 is alarming)
+                        const gapCell = s.agg_train_validation_gap > 1.0
+                            ? `<span class="gap-warning">&#9888; Overfit (${s.agg_train_validation_gap.toFixed(2)})</span>`
+                            : `<span>${s.agg_train_validation_gap.toFixed(2)}</span>`;
+
+                        tr.innerHTML = `
+                            <td>${idx + 1}</td>
+                            <td><strong>${s.name}</strong><br><span style="font-size:0.75rem; color:var(--text-muted);">${s.id}</span></td>
+                            <td>${s.agg_validation_sharpe.toFixed(2)}</td>
+                            <td>${(s.agg_validation_drawdown * 100).toFixed(1)}%</td>
+                            <td>${(s.agg_validation_win_rate * 100).toFixed(1)}%</td>
+                            <td>${gapCell}</td>
+                            <td>${s.mutation_type ? `${s.mutation_type} (${s.parent_id})` : 'Seed'}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                });
+        }
+
+        function triggerRun() {
+            fetch("/api/runs/start", { method: "POST" })
+                .then(r => r.json())
+                .then(res => {
+                    alert(res.message);
+                    loadRunsList();
+                });
+        }
+
+        function showStrategyDetail(stratId, rowEl) {
+            selectedStratId = stratId;
+            document.querySelectorAll(".clickable-row").forEach(el => el.classList.remove("selected"));
+            if (rowEl) rowEl.classList.add("selected");
+
+            fetch(`/api/strategies/${stratId}`)
+                .then(r => r.json())
+                .then(s => {
+                    document.getElementById("drawerStratName").innerText = s.name;
+                    document.getElementById("detailSharpe").innerText = s.agg_validation_sharpe.toFixed(2);
+                    document.getElementById("detailDrawdown").innerText = `${(s.agg_validation_drawdown * 100).toFixed(1)}%`;
+                    document.getElementById("detailWinRate").innerText = `${(s.agg_validation_win_rate * 100).toFixed(1)}%`;
+
+                    // Generate readable rule description
+                    const ruleSentences = renderRulesToSentences(s.config);
+                    document.getElementById("rulesSentencesContainer").innerHTML = ruleSentences;
+
+                    // Plot train vs val equity curve
+                    plotEquityCurves(s.folds);
+
+                    // Render trade logs
+                    const tradeLogBody = document.getElementById("tradeLogBody");
+                    tradeLogBody.innerHTML = "";
+                    if (s.trades.length === 0) {
+                        tradeLogBody.innerHTML = `<tr><td colspan="7" style="text-align:center;">No trades recorded for this strategy.</td></tr>`;
+                    } else {
+                        s.trades.forEach(t => {
+                            const tr = document.createElement("tr");
+                            const pColor = t.profit_pct >= 0 ? "green" : "red";
+                            const profitText = t.profit_pct !== null ? `<span style="color:${pColor}; font-weight:600;">${(t.profit_pct * 100).toFixed(1)}%</span>` : "-";
+
+                            tr.innerHTML = `
+                                <td>${t.ticker}</td>
+                                <td>${t.entry_date.split("T")[0]}</td>
+                                <td>$${t.entry_price.toFixed(2)}</td>
+                                <td>${t.exit_date ? t.exit_date.split("T")[0] : "-"}</td>
+                                <td>${t.exit_price ? `$${t.exit_price.toFixed(2)}` : "-"}</td>
+                                <td>${profitText}</td>
+                                <td>${t.exit_reason || "-"}</td>
+                            `;
+                            tradeLogBody.appendChild(tr);
+                        });
+                    }
+
+                    // Open Drawer
+                    document.getElementById("drawerOverlay").style.display = "block";
+                    document.getElementById("strategyDrawer").classList.add("open");
+                });
+        }
+
+        function closeDrawer() {
+            document.getElementById("drawerOverlay").style.display = "none";
+            document.getElementById("strategyDrawer").classList.remove("open");
+        }
+
+        function renderRulesToSentences(config) {
+            function recurseRule(rule) {
+                if (rule.type === "and" || rule.type === "or") {
+                    const subParts = rule.rules.map(recurseRule);
+                    return `(${subParts.join(` <strong>${rule.type.toUpperCase()}</strong> `)})`;
+                } else if (rule.type === "not") {
+                    return `<strong>NOT</strong> (${recurseRule(rule.rules[0])})`;
+                } else {
+                    // simple condition
+                    const bVal = typeof rule.indicator_b === "object"
+                        ? `${rule.indicator_b.name}(${rule.indicator_b.period || ''})`
+                        : rule.indicator_b;
+                    return `${rule.indicator_a.name}(${rule.indicator_a.period || ''}) ${rule.operator} ${bVal}`;
+                }
+            }
+            const entryText = recurseRule(config.entry_rules);
+            const exitText = recurseRule(config.exit_rules);
+            return `
+                <p><strong>Entry Condition:</strong> Buy when ${entryText}</p>
+                <p style="margin-top:0.5rem;"><strong>Exit Condition:</strong> Sell when ${exitText}</p>
+            `;
+        }
+
+        function plotEquityCurves(folds) {
+            // Aggregate all fold curves or show the primary fold index 0 curve for simplicity
+            if (folds.length === 0) return;
+
+            const firstFold = folds[0];
+            const trainPoints = firstFold.train_equity_curve;
+            const valPoints = firstFold.val_equity_curve;
+
+            const labels = [];
+            const data = [];
+
+            trainPoints.forEach(pt => {
+                labels.push(pt.date);
+                data.push(pt.equity);
+            });
+            valPoints.forEach(pt => {
+                labels.push(pt.date);
+                data.push(pt.equity);
+            });
+
+            const ctx = document.getElementById("equityChartCanvas").getContext("2d");
+            if (myChart) {
+                myChart.destroy();
+            }
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Train Period Equity',
+                        data: data.slice(0, trainPoints.length),
+                        borderColor: '#C9A44C',
+                        backgroundColor: 'rgba(201, 164, 76, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.1
+                    }, {
+                        label: 'Validation Period Equity',
+                        data: Array(trainPoints.length).fill(null).concat(data.slice(trainPoints.length)),
+                        borderColor: '#1A1A1A',
+                        backgroundColor: 'rgba(26, 26, 26, 0.05)',
+                        borderWidth: 2,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            fetch("/api/research/upload", {
+                method: "POST",
+                body: formData
+            })
+            .then(r => r.json())
+            .then(res => {
+                document.getElementById("previewBox").style.display = "block";
+                document.getElementById("previewJson").innerText = JSON.stringify(res.strategy, null, 2);
+            })
+            .catch(err => {
+                alert("Upload failed: " + err);
+            });
+        }
+    </script>
+</body>
+</html>

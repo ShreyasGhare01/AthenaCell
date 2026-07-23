@@ -1,0 +1,276 @@
+{
+  "$defs": {
+    "IndicatorParam": {
+      "properties": {
+        "name": {
+          "enum": [
+            "SMA",
+            "EMA",
+            "RSI",
+            "MACD_LINE",
+            "MACD_SIGNAL",
+            "MACD_HIST",
+            "BB_UPPER",
+            "BB_LOWER",
+            "BB_MIDDLE",
+            "ATR",
+            "PRICE_CLOSE",
+            "PRICE_OPEN",
+            "PRICE_HIGH",
+            "PRICE_LOW",
+            "VOLUME",
+            "N_DAY_HIGH",
+            "N_DAY_LOW"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Period"
+        },
+        "field_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field Ref"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "title": "Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "IndicatorParam",
+      "type": "object"
+    },
+    "LogicalRuleGroup": {
+      "properties": {
+        "type": {
+          "enum": [
+            "and",
+            "or",
+            "not"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SimpleCondition"
+              },
+              {
+                "$ref": "#/$defs/LogicalRuleGroup"
+              }
+            ]
+          },
+          "title": "Rules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "rules"
+      ],
+      "title": "LogicalRuleGroup",
+      "type": "object"
+    },
+    "PositionSizingRule": {
+      "properties": {
+        "type": {
+          "default": "fixed_pct",
+          "enum": [
+            "fixed_pct",
+            "risk_adjusted_atr"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "default": 0.1,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "title": "PositionSizingRule",
+      "type": "object"
+    },
+    "SimpleCondition": {
+      "properties": {
+        "type": {
+          "const": "condition",
+          "default": "condition",
+          "title": "Type",
+          "type": "string"
+        },
+        "indicator_a": {
+          "$ref": "#/$defs/IndicatorParam"
+        },
+        "operator": {
+          "enum": [
+            ">",
+            "<",
+            ">=",
+            "<=",
+            "==",
+            "!="
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "indicator_b": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IndicatorParam"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Indicator B"
+        }
+      },
+      "required": [
+        "indicator_a",
+        "operator",
+        "indicator_b"
+      ],
+      "title": "SimpleCondition",
+      "type": "object"
+    },
+    "StopLossTakeProfit": {
+      "properties": {
+        "stop_loss_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Loss Pct"
+        },
+        "take_profit_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Take Profit Pct"
+        },
+        "atr_stop_multiplier": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Atr Stop Multiplier"
+        }
+      },
+      "title": "StopLossTakeProfit",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "universe": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Universe",
+      "type": "array"
+    },
+    "timeframe": {
+      "default": "1d",
+      "enum": [
+        "1d",
+        "1h"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    },
+    "entry_rules": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SimpleCondition"
+        },
+        {
+          "$ref": "#/$defs/LogicalRuleGroup"
+        }
+      ],
+      "title": "Entry Rules"
+    },
+    "exit_rules": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SimpleCondition"
+        },
+        {
+          "$ref": "#/$defs/LogicalRuleGroup"
+        }
+      ],
+      "title": "Exit Rules"
+    },
+    "position_sizing": {
+      "$ref": "#/$defs/PositionSizingRule"
+    },
+    "risk_management": {
+      "$ref": "#/$defs/StopLossTakeProfit"
+    },
+    "max_concurrent_positions": {
+      "default": 5,
+      "title": "Max Concurrent Positions",
+      "type": "integer"
+    },
+    "risk_per_trade_cap_pct": {
+      "default": 0.02,
+      "title": "Risk Per Trade Cap Pct",
+      "type": "number"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "universe",
+    "entry_rules",
+    "exit_rules"
+  ],
+  "title": "StrategyConfig",
+  "type": "object"
+}

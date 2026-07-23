@@ -1,0 +1,37 @@
+{
+  "id": "bb_breakout_atr_stop",
+  "name": "Bollinger Bands Breakout with ATR Trailing Stop",
+  "universe": ["AAPL", "MSFT", "GOOGL"],
+  "timeframe": "1d",
+  "entry_rules": {
+    "type": "condition",
+    "indicator_a": {
+      "name": "PRICE_CLOSE"
+    },
+    "operator": ">",
+    "indicator_b": {
+      "name": "BB_UPPER",
+      "period": 20
+    }
+  },
+  "exit_rules": {
+    "type": "condition",
+    "indicator_a": {
+      "name": "PRICE_CLOSE"
+    },
+    "operator": "<",
+    "indicator_b": {
+      "name": "BB_LOWER",
+      "period": 20
+    }
+  },
+  "position_sizing": {
+    "type": "risk_adjusted_atr",
+    "value": 0.05
+  },
+  "risk_management": {
+    "atr_stop_multiplier": 2.5
+  },
+  "max_concurrent_positions": 3,
+  "risk_per_trade_cap_pct": 0.02
+}

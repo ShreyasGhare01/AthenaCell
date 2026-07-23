@@ -1,0 +1,38 @@
+# Run parameters and implementation selection
+run:
+  name: "Default AthenaCell Evolution"
+  population_size: 30
+  generations: 5
+  universe:
+    - "AAPL"
+    - "MSFT"
+    - "GOOGL"
+  start_date: "2020-01-01"
+  end_date: "2023-12-31"
+
+# Walk-forward rolling folds parameters
+walk_forward:
+  train_months: 12
+  validate_months: 3
+  step_months: 3 # Rolling fold step size (slides forward by 3 months each time)
+
+# Pluggable Component Registry Selection
+components:
+  data_source: "yfinance"
+  selection_strategy: "tournament"
+  primary_scoring_metric: "sharpe"
+  metrics:
+    - "sharpe"
+    - "max_drawdown"
+    - "win_rate"
+  mutators:
+    - "parameter_jitter"
+    - "indicator_threshold_drift"
+    - "rule_swap"
+
+# Risk and size limits
+risk:
+  initial_cash: 100000.0
+  max_position_size_pct: 0.1 # Max 10% of equity per trade
+  risk_per_trade_pct: 0.02   # Risk 2% of equity max via stop-loss
+  max_concurrent_positions: 5
