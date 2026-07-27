@@ -1,10 +1,10 @@
-import asyncio
 import os
 import random
 import yaml
 import uuid
+import queue
 import pandas as pd
-from typing import List, Dict, Any, Callable
+from typing import List, Dict, Any, Callable, Optional
 from storage.db import StorageManager, DBRun, DBGeneration, DBStrategy, DBStrategyFold, DBSimulatedTrade
 from data.loader import DataLoader
 from engine.walk_forward import generate_rolling_folds
@@ -28,36 +28,44 @@ class EvolutionLoop:
         self.storage = StorageManager(db_url=self.db_url)
         self.data_loader = DataLoader()
 
-    async def run_evolution(self, broadcast_fn: Callable[[Dict[str, Any]], Any] = None):
+    def run_evolution(self, run_id: Optional[int] = None, broadcast_queue: Optional[queue.Queue] = None):
         """
-        Executes the evolution run step-by-step and persists details.
-
-        Parameters:
-            broadcast_fn: Optional async function to stream real-time updates to connected WebSockets.
+        Executes the evolution run step-by-step and persists details synchronously.
         """
-        # 1. Create a DBRun record
         session = self.storage.get_session()
-        db_run = DBRun(
-            name=self.config["run"]["name"],
-            status="running",
-            config=self.config
-        )
-        session.add(db_run)
-        session.commit()
-        session.refresh(db_run)
 
-        run_id = db_run.id
+        # 1. Create or retrieve DBRun record
+        if run_id is not None:
+            db_run = session.query(DBRun).filter_by(id=run_id).first()
+            if db_run:
+                db_run.status = "running"
+                session.commit()
+                # Ensure we use the config from the DBRun if resuming, or fallback to file config
+                run_config = db_run.config if db_run.config else self.config
+            else:
+                run_config = self.config
+        else:
+            db_run = DBRun(
+                name=self.config["run"]["name"],
+                status="running",
+                config=self.config
+            )
+            session.add(db_run)
+            session.commit()
+            session.refresh(db_run)
+            run_id = db_run.id
+            run_config = self.config
 
         try:
             # 2. Set up components and data source
-            pop_size = self.config["run"]["population_size"]
-            generations_count = self.config["run"]["generations"]
-            universe = self.config["run"]["universe"]
-            start_date = self.config["run"]["start_date"]
-            end_date = self.config["run"]["end_date"]
+            pop_size = run_config["run"]["population_size"]
+            generations_count = run_config["run"]["generations"]
+            universe = run_config["run"]["universe"]
+            start_date = run_config["run"]["start_date"]
+            end_date = run_config["run"]["end_date"]
 
             # Setup rolling folds
-            wf_params = self.config["walk_forward"]
+            wf_params = run_config["walk_forward"]
             folds = generate_rolling_folds(
                 start_date=start_date,
                 end_date=end_date,
@@ -69,7 +77,7 @@ class EvolutionLoop:
             if not folds:
                 raise ValueError("No rolling folds generated with current date/month configs.")
 
-            source_name = self.config["components"]["data_source"]
+            source_name = run_config["components"]["data_source"]
             data_source = self.data_loader.get_source(source_name)
 
             # Auto-warm up cash/parquet caches for all universe tickers
@@ -81,27 +89,70 @@ class EvolutionLoop:
 
             backtester = Backtester(data_source)
 
-            # 3. Create generation 0
-            population: List[StrategyConfig] = []
-            seed_gen = RandomStrategyGenerator(universe=universe)
-            for _ in range(pop_size):
-                population.append(seed_gen.generate())
+            # Check if there's any completed generation in this DBRun to resume from
+            completed_gens = session.query(DBGeneration).filter_by(run_id=run_id).order_by(DBGeneration.generation_number.desc()).all()
 
+            # Find the last generation that has saved strategies
+            starting_gen_idx = 0
+            population: List[StrategyConfig] = []
             parent_info = {} # strategy_id -> (parent_id, mutation_type, reason)
 
-            for gen_idx in range(generations_count):
+            last_completed_gen = None
+            for gen in completed_gens:
+                strats = session.query(DBStrategy).filter_by(generation_id=gen.id).all()
+                if len(strats) >= pop_size:
+                    last_completed_gen = gen
+                    break
+
+            if last_completed_gen is not None:
+                # Resume from the last completed generation
+                print(f"Resuming run_id {run_id} from completed generation {last_completed_gen.generation_number}")
+                starting_gen_idx = last_completed_gen.generation_number + 1
+
+                # Load population from DB
+                db_strats = session.query(DBStrategy).filter_by(generation_id=last_completed_gen.id).all()
+                for s in db_strats:
+                    population.append(StrategyConfig.model_validate(s.config_json))
+
+                # Check if we have completed all generations
+                if starting_gen_idx >= generations_count:
+                    print("All generations already completed. Finishing run.")
+                    db_run.status = "completed"
+                    session.commit()
+                    if broadcast_queue:
+                        broadcast_queue.put({
+                            "run_id": run_id,
+                            "status": "completed"
+                        })
+                    return
+            else:
+                # 3. Create generation 0 fresh
+                seed_gen = RandomStrategyGenerator(universe=universe)
+                for _ in range(pop_size):
+                    population.append(seed_gen.generate())
+
+            for gen_idx in range(starting_gen_idx, generations_count):
                 print(f"\n--- Generation {gen_idx} Evolution ---")
 
-                # Create DBGeneration
-                db_gen = DBGeneration(run_id=run_id, generation_number=gen_idx)
-                session.add(db_gen)
-                session.commit()
-                session.refresh(db_gen)
+                # Create DBGeneration (or reuse if existed somehow)
+                db_gen = session.query(DBGeneration).filter_by(run_id=run_id, generation_number=gen_idx).first()
+                if not db_gen:
+                    db_gen = DBGeneration(run_id=run_id, generation_number=gen_idx)
+                    session.add(db_gen)
+                    session.commit()
+                    session.refresh(db_gen)
 
                 # Evaluate strategy candidates against all rolling folds
                 evaluated_population = []
 
                 for strat in population:
+                    # Check if strategy is already saved for this generation to avoid re-evaluating
+                    existing_strat = session.query(DBStrategy).filter_by(id=strat.id, generation_id=db_gen.id).first()
+                    if existing_strat:
+                        # Strategy already evaluated and saved in this run/gen (e.g. from a partial previous run)
+                        evaluated_population.append((strat, existing_strat.agg_validation_sharpe))
+                        continue
+
                     strat_folds_metrics = []
                     all_trades = []
 
@@ -111,13 +162,16 @@ class EvolutionLoop:
                     val_win_rates = []
                     train_sharpes = []
 
+                    # Evaluate has_stop_loss property
+                    has_stop_loss = (strat.risk_management.stop_loss_pct is not None) or (strat.risk_management.atr_stop_multiplier is not None)
+
                     for fold_idx, fold in enumerate(folds):
                         # Backtest on Training fold
                         train_res = backtester.run(
                             strat,
                             start_date=fold["train_start"].strftime("%Y-%m-%d"),
                             end_date=fold["train_end"].strftime("%Y-%m-%d"),
-                            initial_cash=self.config["risk"]["initial_cash"]
+                            initial_cash=run_config["risk"]["initial_cash"]
                         )
 
                         # Backtest on Validation fold
@@ -125,7 +179,7 @@ class EvolutionLoop:
                             strat,
                             start_date=fold["val_start"].strftime("%Y-%m-%d"),
                             end_date=fold["val_end"].strftime("%Y-%m-%d"),
-                            initial_cash=self.config["risk"]["initial_cash"]
+                            initial_cash=run_config["risk"]["initial_cash"]
                         )
 
                         val_sharpes.append(val_res["sharpe"])
@@ -157,7 +211,7 @@ class EvolutionLoop:
                                 "ticker": t["ticker"],
                                 "entry_date": pd.to_datetime(t["entry_date"]),
                                 "entry_price": t["entry_price"],
-                                "exit_date": pd.to_datetime(t["exit_date"]),
+                                "exit_date": pd.to_datetime(t["exit_date"]) if t["exit_date"] else None,
                                 "exit_price": t["exit_price"],
                                 "size": t["size"],
                                 "profit_pct": t["profit_pct"],
@@ -186,7 +240,8 @@ class EvolutionLoop:
                         agg_validation_sharpe=agg_sharpe,
                         agg_validation_drawdown=agg_drawdown,
                         agg_validation_win_rate=agg_win_rate,
-                        agg_train_validation_gap=agg_gap
+                        agg_train_validation_gap=agg_gap,
+                        risk_cap_applied=has_stop_loss
                     )
                     session.add(db_strat)
                     session.flush() # Flushes so strategy table contains records before children are referenced
@@ -234,9 +289,9 @@ class EvolutionLoop:
                 # Sort and Rank based on Validation Sharpe Ratio (Highest to Lowest)
                 evaluated_population.sort(key=lambda x: x[1], reverse=True)
 
-                # Push progress update via WebSocket callback
-                if broadcast_fn:
-                    await broadcast_fn({
+                # Push progress update via WebSocket callback (queue)
+                if broadcast_queue:
+                    broadcast_queue.put({
                         "run_id": run_id,
                         "generation": gen_idx,
                         "total_generations": generations_count,
@@ -254,18 +309,18 @@ class EvolutionLoop:
                     elite_count = max(1, int(pop_size * 0.2))
                     elites = [x[0] for x in evaluated_population[:elite_count]]
 
-                    # Duplicate elites with a new ID so they are saved cleanly in the DB as new rows for this generation
+                    # Duplicate elites with a clean new UUID ID (Moderate Fix #9)
                     for elite in elites:
                         elite_dict = elite.model_dump()
                         old_id = elite_dict["id"]
-                        new_id = f"surv_{old_id}_{gen_idx + 1}"
+                        new_id = uuid.uuid4().hex[:12]
                         elite_dict["id"] = new_id
                         cloned_elite = StrategyConfig.model_validate(elite_dict)
                         next_generation.append(cloned_elite)
                         parent_info[new_id] = (old_id, "survival", "Survived elite ranking from previous generation.")
 
                     # Fill the remaining population size using selection and mutations
-                    mutators_list = self.config["components"]["mutators"]
+                    mutators_list = run_config["components"]["mutators"]
 
                     while len(next_generation) < pop_size:
                         # Simple Tournament selection between two random strategies
@@ -291,20 +346,24 @@ class EvolutionLoop:
                     population = next_generation
 
             # Set Run complete
-            db_run.status = "completed"
-            session.commit()
+            db_run = session.query(DBRun).filter_by(id=run_id).first()
+            if db_run:
+                db_run.status = "completed"
+                session.commit()
 
-            if broadcast_fn:
-                await broadcast_fn({
+            if broadcast_queue:
+                broadcast_queue.put({
                     "run_id": run_id,
                     "status": "completed"
                 })
 
         except Exception as e:
-            db_run.status = "failed"
-            session.commit()
-            if broadcast_fn:
-                await broadcast_fn({
+            db_run = session.query(DBRun).filter_by(id=run_id).first()
+            if db_run:
+                db_run.status = "failed"
+                session.commit()
+            if broadcast_queue:
+                broadcast_queue.put({
                     "run_id": run_id,
                     "status": "failed",
                     "error": str(e)

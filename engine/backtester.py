@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import logging
+import random
 from typing import Dict, Any, List
 from strategies.schema import StrategyConfig, RuleType, SimpleCondition, LogicalRuleGroup
 
@@ -192,7 +194,8 @@ class Backtester:
                 "max_drawdown": 0.0,
                 "win_rate": 0.0,
                 "equity_curve": [],
-                "trades": []
+                "trades": [],
+                "risk_cap_applied": False
             }
 
         # Compile unique union of business days across all dataframes
@@ -203,148 +206,203 @@ class Backtester:
                 "max_drawdown": 0.0,
                 "win_rate": 0.0,
                 "equity_curve": [],
-                "trades": []
+                "trades": [],
+                "risk_cap_applied": False
             }
 
         cash = initial_cash
-        positions = {} # ticker -> { 'entry_price', 'entry_date', 'size', 'stop_loss', 'take_profit' }
+        positions = {} # ticker -> { 'entry_price', 'entry_date', 'size', 'stop_loss', 'take_profit', 'last_known_price' }
         trades_log = []
         equity_history = []
+
+        # Track queued entries and exits for next-bar open execution
+        queued_exits = [] # list of dicts: {"ticker": ticker, "reason": reason}
+        queued_entries = [] # list of tickers
 
         # Serialize entry/exit rules to simple dictionaries for evaluate_rule
         entry_rules_dict = config.entry_rules.model_dump()
         exit_rules_dict = config.exit_rules.model_dump()
 
+        # Check if the strategy has a stop-loss configured
+        has_stop_loss = (config.risk_management.stop_loss_pct is not None) or (config.risk_management.atr_stop_multiplier is not None)
+
         for date in all_dates:
-            # Update position valuations and check exits/stop-losses
+            # 1. Execute queued exits at today's Open
+            for q_exit in list(queued_exits):
+                ticker = q_exit["ticker"]
+                reason = q_exit["reason"]
+                pos = positions[ticker]
+                df = tickers_data[ticker]
+
+                execution_price = float(df.loc[date, "open"]) if date in df.index else pos["last_known_price"]
+                effective_exit_price = execution_price * (1 - config.slippage_pct)
+                cash_received = pos["size"] * effective_exit_price - config.commission
+                cash += cash_received
+
+                trades_log.append({
+                    "ticker": ticker,
+                    "entry_date": pos["entry_date"],
+                    "entry_price": pos["entry_price"],
+                    "exit_date": date,
+                    "exit_price": effective_exit_price,
+                    "size": pos["size"],
+                    "profit_pct": (effective_exit_price - pos["entry_price"]) / pos["entry_price"],
+                    "exit_reason": reason
+                })
+                positions.pop(ticker)
+            queued_exits.clear()
+
+            # Calculate current equity at the start of the day after exits but before entries
+            # Using closing/last known prices for held positions, plus cash
+            current_equity = cash + sum(p["size"] * p["last_known_price"] for p in positions.values())
+
+            # 2. Execute queued entries at today's Open
+            for ticker in list(queued_entries):
+                df = tickers_data[ticker]
+                execution_price = float(df.loc[date, "open"]) if date in df.index else None
+                if execution_price is None:
+                    continue
+
+                effective_entry_price = execution_price * (1 + config.slippage_pct)
+
+                # Compute stop loss and take profit relative to effective entry price
+                sl_price = None
+                tp_price = None
+
+                # Find index position on the signal date (last date in df before `date`)
+                df_before = df.loc[df.index < date]
+                signal_index_pos = len(df_before) - 1 if not df_before.empty else 0
+
+                if config.risk_management.stop_loss_pct:
+                    sl_price = effective_entry_price * (1 - config.risk_management.stop_loss_pct)
+                if config.risk_management.take_profit_pct:
+                    tp_price = effective_entry_price * (1 + config.risk_management.take_profit_pct)
+                if config.risk_management.atr_stop_multiplier:
+                    atr_val = evaluate_indicator(df, {"name": "ATR", "period": 14}, signal_index_pos)
+                    if atr_val > 0:
+                        sl_price = effective_entry_price - (config.risk_management.atr_stop_multiplier * atr_val)
+
+                # Sizing logic
+                position_sizing_value = config.position_sizing.value
+
+                if has_stop_loss and sl_price is not None:
+                    # risk-based sizing
+                    risk_cap = config.risk_per_trade_cap_pct
+                    risk_amount = risk_cap * current_equity
+                    risk_per_share = effective_entry_price - sl_price
+
+                    if risk_per_share > 0:
+                        target_size = risk_amount / risk_per_share
+                    else:
+                        target_size = (position_sizing_value * current_equity) / effective_entry_price
+
+                    # Cap by position sizing % of equity limit
+                    max_sizing_allocation = position_sizing_value * current_equity
+                    size_from_sizing = max_sizing_allocation / effective_entry_price
+                    size = min(target_size, size_from_sizing)
+                else:
+                    # Fallback to % of equity sizing
+                    max_sizing_allocation = position_sizing_value * current_equity
+                    size = max_sizing_allocation / effective_entry_price
+
+                    logger = logging.getLogger("athenacell")
+                    msg = f"Warning: Risk cap not applied for {ticker} because no stop-loss exists."
+                    logger.warning(msg)
+                    print(msg)
+
+                # Cap by available cash (accounting for flat commission)
+                max_cash_allocation = cash - config.commission
+                if max_cash_allocation > 0:
+                    size_from_cash = max_cash_allocation / effective_entry_price
+                    size = min(size, size_from_cash)
+                else:
+                    size = 0.0
+
+                if size > 0:
+                    cash -= (size * effective_entry_price + config.commission)
+                    positions[ticker] = {
+                        "entry_price": effective_entry_price,
+                        "entry_date": date,
+                        "size": size,
+                        "stop_loss": sl_price,
+                        "take_profit": tp_price,
+                        "last_known_price": effective_entry_price
+                    }
+            queued_entries.clear()
+
+            # 3. Update current day's close valuations for held positions, and check signal triggers
             current_equity = cash
             for ticker, pos in list(positions.items()):
                 df = tickers_data[ticker]
                 if date in df.index:
                     current_price = float(df.loc[date, "close"])
-                    pos_val = pos["size"] * current_price
-                    current_equity += pos_val
+                    pos["last_known_price"] = current_price
+                    current_equity += pos["size"] * current_price
 
-                    # 1. Stop loss trigger
+                    # Check exit triggers on Day N Close (executing on Day N+1 Open)
+                    # 3a. Stop loss trigger
                     if pos["stop_loss"] and current_price <= pos["stop_loss"]:
-                        # Sell
-                        cash += pos["size"] * current_price
-                        trades_log.append({
-                            "ticker": ticker,
-                            "entry_date": pos["entry_date"],
-                            "entry_price": pos["entry_price"],
-                            "exit_date": date,
-                            "exit_price": current_price,
-                            "size": pos["size"],
-                            "profit_pct": (current_price - pos["entry_price"]) / pos["entry_price"],
-                            "exit_reason": "stop_loss"
-                        })
-                        positions.pop(ticker)
+                        queued_exits.append({"ticker": ticker, "reason": "stop_loss"})
                         continue
 
-                    # 2. Take profit trigger
+                    # 3b. Take profit trigger
                     if pos["take_profit"] and current_price >= pos["take_profit"]:
-                        cash += pos["size"] * current_price
-                        trades_log.append({
-                            "ticker": ticker,
-                            "entry_date": pos["entry_date"],
-                            "entry_price": pos["entry_price"],
-                            "exit_date": date,
-                            "exit_price": current_price,
-                            "size": pos["size"],
-                            "profit_pct": (current_price - pos["entry_price"]) / pos["entry_price"],
-                            "exit_reason": "take_profit"
-                        })
-                        positions.pop(ticker)
+                        queued_exits.append({"ticker": ticker, "reason": "take_profit"})
                         continue
 
-                    # 3. Strategy EXIT Rule evaluation
+                    # 3c. Strategy EXIT Rule evaluation
                     index_pos = df.index.get_loc(date)
                     if evaluate_rule(exit_rules_dict, df, index_pos):
-                        cash += pos["size"] * current_price
-                        trades_log.append({
-                            "ticker": ticker,
-                            "entry_date": pos["entry_date"],
-                            "entry_price": pos["entry_price"],
-                            "exit_date": date,
-                            "exit_price": current_price,
-                            "size": pos["size"],
-                            "profit_pct": (current_price - pos["entry_price"]) / pos["entry_price"],
-                            "exit_reason": "rule"
-                        })
-                        positions.pop(ticker)
+                        queued_exits.append({"ticker": ticker, "reason": "rule"})
                         continue
                 else:
-                    # Ticker doesn't have data on this date, assume holding value remains same
-                    current_equity += pos["size"] * pos["entry_price"]
+                    # Missing data: carry forward last known price
+                    current_equity += pos["size"] * pos["last_known_price"]
 
-            # Log daily equity
+            # Log daily equity at close of the day
             equity_history.append({
                 "date": date.strftime("%Y-%m-%d"),
                 "equity": current_equity
             })
 
-            # Check for new ENTRYS if we have open slots
-            if len(positions) < config.max_concurrent_positions:
-                for ticker in config.universe:
-                    if ticker in positions:
+            # 4. Check for new entry signals on Day N Close (executing on Day N+1 Open)
+            active_slots = len(positions) + len(queued_entries) - len(queued_exits)
+            if active_slots < config.max_concurrent_positions:
+                shuffled_universe = list(config.universe)
+                random.shuffle(shuffled_universe)
+
+                for ticker in shuffled_universe:
+                    if ticker in positions or ticker in queued_entries:
                         continue
+
                     df = tickers_data[ticker]
                     if date not in df.index:
                         continue
 
                     index_pos = df.index.get_loc(date)
                     if evaluate_rule(entry_rules_dict, df, index_pos):
-                        # Determine entry price and initial parameters
-                        entry_price = float(df.loc[date, "close"])
-
-                        # Position sizing logic
-                        allocation_pct = config.position_sizing.value
-
-                        # Risk sizing: Max amount to allocate is current_equity * allocation_pct
-                        max_allocation = current_equity * allocation_pct
-
-                        # Set Stop Loss / Take Profit
-                        sl_price = None
-                        tp_price = None
-
-                        if config.risk_management.stop_loss_pct:
-                            sl_price = entry_price * (1 - config.risk_management.stop_loss_pct)
-                        if config.risk_management.take_profit_pct:
-                            tp_price = entry_price * (1 + config.risk_management.take_profit_pct)
-
-                        # Use ATR stop if applicable
-                        if config.risk_management.atr_stop_multiplier:
-                            atr_val = evaluate_indicator(df, {"name": "ATR", "period": 14}, index_pos)
-                            if atr_val > 0:
-                                sl_price = entry_price - (config.risk_management.atr_stop_multiplier * atr_val)
-
-                        # Calculate size based on allocation
-                        if cash >= max_allocation and max_allocation > 0:
-                            size = max_allocation / entry_price
-                            cash -= max_allocation
-                            positions[ticker] = {
-                                "entry_price": entry_price,
-                                "entry_date": date,
-                                "size": size,
-                                "stop_loss": sl_price,
-                                "take_profit": tp_price
-                            }
+                        queued_entries.append(ticker)
+                        active_slots += 1
+                        if active_slots >= config.max_concurrent_positions:
+                            break
 
         # Close out any remaining positions at the end of the backtest
         end_date_ts = all_dates[-1]
         for ticker, pos in list(positions.items()):
             df = tickers_data[ticker]
-            exit_price = float(df.loc[end_date_ts, "close"]) if end_date_ts in df.index else pos["entry_price"]
-            cash += pos["size"] * exit_price
+            base_price = float(df.loc[end_date_ts, "close"]) if end_date_ts in df.index else pos["last_known_price"]
+
+            # Apply slippage and commission
+            effective_exit_price = base_price * (1 - config.slippage_pct)
+            cash += pos["size"] * effective_exit_price - config.commission
             trades_log.append({
                 "ticker": ticker,
                 "entry_date": pos["entry_date"],
                 "entry_price": pos["entry_price"],
                 "exit_date": end_date_ts,
-                "exit_price": exit_price,
+                "exit_price": effective_exit_price,
                 "size": pos["size"],
-                "profit_pct": (exit_price - pos["entry_price"]) / pos["entry_price"],
+                "profit_pct": (effective_exit_price - pos["entry_price"]) / pos["entry_price"],
                 "exit_reason": "end_of_period"
             })
 
@@ -358,16 +416,23 @@ class Backtester:
         from engine.metrics.implementations import MetricRegistry
         sharpe_calc = MetricRegistry.get_metric("sharpe")
         dd_calc = MetricRegistry.get_metric("max_drawdown")
-        wr_calc = MetricRegistry.get_metric("win_rate")
 
         sharpe_val = sharpe_calc.calculate(daily_returns, equity_vals)
         dd_val = dd_calc.calculate(daily_returns, equity_vals)
-        win_rate_val = wr_calc.calculate(daily_returns, equity_vals)
+
+        # Compute Win Rate directly from non-end_of_period trades as requested
+        closed_trades = [t for t in trades_log if t["exit_reason"] != "end_of_period"]
+        if closed_trades:
+            winning_trades = [t for t in closed_trades if t["profit_pct"] > 0]
+            win_rate_val = len(winning_trades) / len(closed_trades)
+        else:
+            win_rate_val = 0.0
 
         return {
             "sharpe": sharpe_val,
             "max_drawdown": dd_val,
             "win_rate": win_rate_val,
             "equity_curve": equity_history,
-            "trades": trades_log
+            "trades": trades_log,
+            "risk_cap_applied": has_stop_loss
         }

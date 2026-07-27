@@ -1,6 +1,6 @@
 import pytest
 import os
-import asyncio
+import queue
 from evolution.loop import EvolutionLoop
 from storage.db import StorageManager, DBRun, DBStrategy
 
@@ -15,8 +15,7 @@ def cleanup():
     if os.path.exists(db_file):
         os.remove(db_file)
 
-@pytest.mark.asyncio
-async def test_evolution_loop():
+def test_evolution_loop():
     # Make a temporary run config with low population and 2 generations for speed
     import yaml
     with open("config/run_config.yaml", "r") as f:
@@ -40,11 +39,16 @@ async def test_evolution_loop():
     try:
         loop = EvolutionLoop(run_config_path=temp_cfg_path, db_url=TEST_DB_URL)
 
-        broadcasts = []
-        async def mock_broadcast(msg):
-            broadcasts.append(msg)
+        broadcast_q = queue.Queue()
 
-        await loop.run_evolution(broadcast_fn=mock_broadcast)
+        loop.run_evolution(broadcast_queue=broadcast_q)
+
+        # Retrieve any broadcasted messages from the queue
+        broadcasts = []
+        while not broadcast_q.empty():
+            broadcasts.append(broadcast_q.get_nowait())
+
+        assert len(broadcasts) > 0
 
         # Verify run completion
         storage = StorageManager(db_url=TEST_DB_URL)

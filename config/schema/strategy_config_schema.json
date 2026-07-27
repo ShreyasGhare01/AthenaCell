@@ -262,6 +262,16 @@
       "default": 0.02,
       "title": "Risk Per Trade Cap Pct",
       "type": "number"
+    },
+    "commission": {
+      "default": 0.0,
+      "title": "Commission",
+      "type": "number"
+    },
+    "slippage_pct": {
+      "default": 0.0005,
+      "title": "Slippage Pct",
+      "type": "number"
     }
   },
   "required": [

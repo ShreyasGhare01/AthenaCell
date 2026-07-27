@@ -2,6 +2,8 @@ import asyncio
 import os
 import yaml
 import json
+import threading
+import queue
 from typing import List, Dict, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
@@ -47,6 +49,39 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Global thread-safe queue for background process communication
+broadcast_queue = queue.Queue()
+
+async def queue_listener_task():
+    while True:
+        try:
+            while not broadcast_queue.empty():
+                msg = broadcast_queue.get_nowait()
+                await manager.broadcast(msg)
+                broadcast_queue.task_done()
+        except Exception as e:
+            print(f"Error broadcasting from queue: {e}")
+        await asyncio.sleep(0.5)
+
+@app.on_event("startup")
+def on_startup_cleanup_and_start_listener():
+    # Mark any orphaned running runs as interrupted
+    session = storage.get_session()
+    try:
+        orphaned = session.query(DBRun).filter_by(status="running").all()
+        for r in orphaned:
+            r.status = "interrupted"
+        session.commit()
+        if orphaned:
+            print(f"Marked {len(orphaned)} orphaned running runs as 'interrupted' on startup.")
+    except Exception as e:
+        print(f"Error cleaning up orphaned runs: {e}")
+    finally:
+        session.close()
+
+    # Schedule the asyncio queue listener task
+    asyncio.create_task(queue_listener_task())
+
 
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
@@ -69,18 +104,63 @@ async def list_runs():
     session.close()
     return res
 
-@app.post("/api/runs/start")
-async def start_run(background_tasks: BackgroundTasks):
-    # Initialize evolution loop
+def run_evolution_in_thread(run_id: int):
+    # Setup its own EvolutionLoop with separate database session
     loop_runner = EvolutionLoop(run_config_path="config/run_config.yaml", db_url=db_url)
+    try:
+        loop_runner.run_evolution(run_id=run_id, broadcast_queue=broadcast_queue)
+    except Exception as e:
+        print(f"Background evolution failed for run_id {run_id}: {e}")
 
-    async def run_task():
-        async def websocket_broadcast(msg):
-            await manager.broadcast(msg)
-        await loop_runner.run_evolution(broadcast_fn=websocket_broadcast)
+@app.post("/api/runs/start")
+async def start_run():
+    # Load run config
+    with open("config/run_config.yaml", "r") as f:
+        run_config = yaml.safe_load(f)
 
-    background_tasks.add_task(run_task)
-    return {"message": "Evolution task started in background."}
+    # 1. Create DBRun synchronously (fast, non-blocking DB write)
+    session = storage.get_session()
+    db_run = DBRun(
+        name=run_config["run"]["name"],
+        status="running",
+        config=run_config
+    )
+    session.add(db_run)
+    session.commit()
+    run_id = db_run.id
+    session.close()
+
+    # 2. Spawn the background thread for evolution loop
+    t = threading.Thread(target=run_evolution_in_thread, args=(run_id,))
+    t.daemon = True
+    t.start()
+
+    # 3. Return run_id immediately (Moderate Fix #10)
+    return {"run_id": run_id, "message": "Evolution task started in background."}
+
+@app.post("/api/runs/{run_id}/resume")
+async def resume_run(run_id: int):
+    session = storage.get_session()
+    db_run = session.query(DBRun).filter_by(id=run_id).first()
+    if not db_run:
+        session.close()
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if db_run.status not in ["running", "failed", "interrupted"]:
+        session.close()
+        raise HTTPException(status_code=400, detail=f"Cannot resume a run in status {db_run.status}")
+
+    # Set status to running
+    db_run.status = "running"
+    session.commit()
+    session.close()
+
+    # Spawn background thread to resume
+    t = threading.Thread(target=run_evolution_in_thread, args=(run_id,))
+    t.daemon = True
+    t.start()
+
+    return {"run_id": run_id, "message": "Evolution task resumed in background."}
 
 @app.get("/api/runs/{run_id}/generations")
 async def list_generations(run_id: int):
@@ -111,7 +191,8 @@ async def list_strategies(gen_id: int):
             "agg_validation_sharpe": s.agg_validation_sharpe,
             "agg_validation_drawdown": s.agg_validation_drawdown,
             "agg_validation_win_rate": s.agg_validation_win_rate,
-            "agg_train_validation_gap": s.agg_train_validation_gap
+            "agg_train_validation_gap": s.agg_train_validation_gap,
+            "risk_cap_applied": s.risk_cap_applied
         })
     session.close()
     return res
@@ -170,6 +251,7 @@ async def get_strategy(strat_id: str):
         "agg_validation_drawdown": strat.agg_validation_drawdown,
         "agg_validation_win_rate": strat.agg_validation_win_rate,
         "agg_train_validation_gap": strat.agg_train_validation_gap,
+        "risk_cap_applied": strat.risk_cap_applied,
         "config": strat.config_json,
         "folds": folds_res,
         "trades": trades_res
