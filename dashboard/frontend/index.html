@@ -357,11 +357,28 @@
             padding: 2rem;
             text-align: center;
             cursor: pointer;
-            transition: background-color 0.2s ease;
+            transition: background-color 0.2s ease, border-color 0.2s ease;
         }
 
         .upload-area:hover {
             background-color: var(--bg-cream);
+        }
+
+        .upload-area:focus-visible {
+            outline: 2px solid var(--header-black);
+            outline-offset: 4px;
+        }
+
+        .upload-area.dragover {
+            background-color: var(--bg-cream);
+            border-color: var(--header-black);
+            border-style: solid;
+        }
+
+        .close-btn:focus-visible {
+            outline: 2px solid var(--header-black);
+            outline-offset: 2px;
+            border-radius: 4px;
         }
 
         .preview-box {
@@ -445,8 +462,8 @@
 
             <div class="card">
                 <h2>Research Library Ingestion</h2>
-                <div class="upload-area" onclick="document.getElementById('fileInput').click()">
-                    <span style="font-weight: 600;">Drag or click here to upload a research paper (.txt, .pdf)</span>
+                <div class="upload-area" id="uploadArea" tabindex="0" role="button" aria-label="Upload research paper (.txt, .pdf)" onclick="document.getElementById('fileInput').click()">
+                    <span style="font-weight: 600;">Drag and drop or click here to upload a research paper (.txt, .pdf)</span>
                     <input type="file" id="fileInput" style="display:none;" onchange="handleFileUpload(event)">
                 </div>
                 <div class="preview-box" id="previewBox">
@@ -462,7 +479,7 @@
     <div class="drawer" id="strategyDrawer">
         <div class="drawer-header">
             <h3 id="drawerStratName">Strategy Detail</h3>
-            <button class="close-btn" onclick="closeDrawer()">&times;</button>
+            <button class="close-btn" aria-label="Close strategy detail drawer" onclick="closeDrawer()">&times;</button>
         </div>
 
         <div class="metrics-grid">
@@ -791,7 +808,10 @@
         function handleFileUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
+            uploadFile(file);
+        }
 
+        function uploadFile(file) {
             const formData = new FormData();
             formData.append("file", file);
 
@@ -808,6 +828,39 @@
                 alert("Upload failed: " + err);
             });
         }
+
+        // Keyboard & Drag and Drop setup for uploadArea
+        window.addEventListener("load", () => {
+            const uploadArea = document.getElementById("uploadArea");
+            if (!uploadArea) return;
+
+            // Keyboard navigation
+            uploadArea.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    document.getElementById("fileInput").click();
+                }
+            });
+
+            // Drag and drop handlers
+            uploadArea.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                uploadArea.classList.add("dragover");
+            });
+
+            uploadArea.addEventListener("dragleave", (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove("dragover");
+            });
+
+            uploadArea.addEventListener("drop", (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove("dragover");
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    uploadFile(e.dataTransfer.files[0]);
+                }
+            });
+        });
     </script>
 </body>
 </html>
