@@ -50,6 +50,8 @@ class StrategyConfig(BaseModel):
     risk_management: StopLossTakeProfit = Field(default_factory=StopLossTakeProfit)
     max_concurrent_positions: int = 5
     risk_per_trade_cap_pct: float = 0.02 # Max risk 2% of portfolio value per trade
+    commission: float = 0.0 # Flat commission per trade (on both entry and exit)
+    slippage_pct: float = 0.0005 # Slippage as a percent of price (e.g. 0.0005 is 0.05%)
 
 def validate_strategy_config(config_dict: dict) -> StrategyConfig:
     """Validates a strategy config dictionary against the Pydantic StrategyConfig schema."""

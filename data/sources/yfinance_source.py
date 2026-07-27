@@ -45,7 +45,7 @@ class YFinanceSource(DataSource):
         margin_end = (end_ts + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
 
         print(f"Downloading {ticker} from yfinance: {margin_start} to {margin_end}...")
-        df_yf = yf.download(ticker, start=margin_start, end=margin_end, progress=False)
+        df_yf = yf.download(ticker, start=margin_start, end=margin_end, progress=False, auto_adjust=True)
 
         if df_yf.empty:
             raise ValueError(f"No data returned for ticker {ticker} from yfinance.")
