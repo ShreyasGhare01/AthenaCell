@@ -26,22 +26,10 @@ class MaxDrawdown(ScoringMetric):
         drawdowns = (peak - equity_curve) / peak
         return float(np.max(drawdowns))
 
-class WinRate(ScoringMetric):
-    def calculate(self, daily_returns: np.ndarray, equity_curve: np.ndarray) -> float:
-        # Note: can also compute from trades, but if computed from positive return days:
-        if len(daily_returns) == 0:
-            return 0.0
-        pos_days = np.sum(daily_returns > 0)
-        total_nonzero_days = np.sum(daily_returns != 0)
-        if total_nonzero_days == 0:
-            return 0.0
-        return float(pos_days / total_nonzero_days)
-
 class MetricRegistry:
     _metrics = {
         "sharpe": SharpeRatio,
-        "max_drawdown": MaxDrawdown,
-        "win_rate": WinRate
+        "max_drawdown": MaxDrawdown
     }
 
     @classmethod

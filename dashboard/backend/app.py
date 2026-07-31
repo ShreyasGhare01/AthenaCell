@@ -192,7 +192,7 @@ async def list_strategies(gen_id: int):
             "agg_validation_drawdown": s.agg_validation_drawdown,
             "agg_validation_win_rate": s.agg_validation_win_rate,
             "agg_train_validation_gap": s.agg_train_validation_gap,
-            "risk_cap_applied": s.risk_cap_applied
+            "risk_cap_applied_pct": s.risk_cap_applied_pct
         })
     session.close()
     return res
@@ -251,7 +251,7 @@ async def get_strategy(strat_id: str):
         "agg_validation_drawdown": strat.agg_validation_drawdown,
         "agg_validation_win_rate": strat.agg_validation_win_rate,
         "agg_train_validation_gap": strat.agg_train_validation_gap,
-        "risk_cap_applied": strat.risk_cap_applied,
+        "risk_cap_applied_pct": strat.risk_cap_applied_pct,
         "config": strat.config_json,
         "folds": folds_res,
         "trades": trades_res

@@ -326,7 +326,7 @@
 
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
@@ -414,7 +414,7 @@
         <div class="sidebar-panel">
             <div class="card">
                 <h2>Control Board</h2>
-                <button class="btn-gold" style="width:100%; margin-bottom: 1rem;" onclick="triggerRun()">Launch Evolution</button>
+                <button class="btn-gold" style="width:100%; margin-bottom: 1rem;">Launch Evolution</button>
                 <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
                     Starts a modular multi-fold walk-forward strategy evolution across the run tickers. Runs are human-triggered only.
                 </div>
@@ -446,6 +446,7 @@
                                 <th>Avg Val Sharpe</th>
                                 <th>Max Drawdown</th>
                                 <th>Win Rate</th>
+                                <th>Risk Cap</th>
                                 <th>Train-vs-Val Gap</th>
                                 <th>Lineage</th>
                             </tr>
@@ -453,7 +454,7 @@
                         <tbody id="leaderboardBody">
                             <!-- Strategies list -->
                             <tr>
-                                <td colspan="7" style="text-align:center; color: var(--text-muted);">Select a run & generation above to load the strategies.</td>
+                                <td colspan="8" style="text-align:center; color: var(--text-muted);">Select a run & generation above to load the strategies.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -462,9 +463,9 @@
 
             <div class="card">
                 <h2>Research Library Ingestion</h2>
-                <div class="upload-area" id="uploadArea" tabindex="0" role="button" aria-label="Upload research paper (.txt, .pdf)" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-area" id="uploadArea" tabindex="0" role="button" aria-label="Upload research paper (.txt, .pdf)">
                     <span style="font-weight: 600;">Drag and drop or click here to upload a research paper (.txt, .pdf)</span>
-                    <input type="file" id="fileInput" style="display:none;" onchange="handleFileUpload(event)">
+                    <input type="file" id="fileInput" style="display:none;">
                 </div>
                 <div class="preview-box" id="previewBox">
                     <h4 style="margin-bottom: 0.5rem; font-family: 'Playfair Display', serif;">Extracted Candidate Hypothesis Strategy Preview:</h4>
@@ -475,11 +476,11 @@
     </main>
 
     <!-- Strategy Detail Drawer Overlay -->
-    <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+    <div class="drawer-overlay" id="drawerOverlay"></div>
     <div class="drawer" id="strategyDrawer">
         <div class="drawer-header">
             <h3 id="drawerStratName">Strategy Detail</h3>
-            <button class="close-btn" aria-label="Close strategy detail drawer" onclick="closeDrawer()">&times;</button>
+            <button class="close-btn" aria-label="Close strategy detail drawer">&times;</button>
         </div>
 
         <div class="metrics-grid">
@@ -494,6 +495,10 @@
             <div class="metric-box">
                 <div class="metric-val" id="detailWinRate">0.0%</div>
                 <div class="metric-lbl">Win Rate</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-val" id="detailRiskCap">0%</div>
+                <div class="metric-lbl">Risk Cap Applied</div>
             </div>
         </div>
 
@@ -528,339 +533,7 @@
         </div>
     </div>
 
-    <script>
-        let currentRunId = null;
-        let currentGenId = null;
-        let selectedStratId = null;
-        let myChart = null;
-
-        // Initialize WebSockets
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/evolution`);
-
-        ws.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            const statusDot = document.getElementById("statusDot");
-            const statusLabel = document.getElementById("statusLabel");
-
-            if (data.status === "evolving") {
-                statusDot.className = "status-dot evolving";
-                statusLabel.innerText = `Evolving Gen ${data.generation}/${data.total_generations} - Best Sharpe: ${data.best_sharpe.toFixed(2)}`;
-                loadRunsList();
-            } else if (data.status === "completed") {
-                statusDot.className = "status-dot";
-                statusLabel.innerText = "Complete";
-                loadRunsList();
-            } else if (data.status === "failed") {
-                statusDot.className = "status-dot idle";
-                statusLabel.innerText = "Failed";
-                alert("Evolution run encountered an error: " + data.error);
-            }
-        };
-
-        // Fetch Runs on load
-        window.addEventListener("load", () => {
-            loadRunsList();
-        });
-
-        // Copy downloaded Chart.js if loaded from static or fall back safely
-        function loadRunsList() {
-            fetch("/api/runs")
-                .then(r => r.json())
-                .then(runs => {
-                    const container = document.getElementById("runListContainer");
-                    container.innerHTML = "";
-                    runs.forEach((r, idx) => {
-                        const li = document.createElement("li");
-                        li.className = `run-item ${currentRunId === r.id ? 'active' : ''}`;
-                        li.innerHTML = `
-                            <strong>${r.name}</strong>
-                            <span style="font-size:0.75rem; color:var(--text-muted);">${r.status}</span>
-                        `;
-                        li.onclick = () => selectRun(r.id);
-                        container.appendChild(li);
-
-                        // Select latest automatically if none selected
-                        if (idx === 0 && !currentRunId) {
-                            selectRun(r.id);
-                        }
-                    });
-                });
-        }
-
-        function selectRun(runId) {
-            currentRunId = runId;
-            document.querySelectorAll(".run-item").forEach(el => el.classList.remove("active"));
-            loadGenerations(runId);
-        }
-
-        function loadGenerations(runId) {
-            fetch(`/api/runs/${runId}/generations`)
-                .then(r => r.json())
-                .then(gens => {
-                    const container = document.getElementById("generationListContainer");
-                    container.innerHTML = "";
-                    gens.forEach((g, idx) => {
-                        const btn = document.createElement("button");
-                        btn.className = `generation-tab ${currentGenId === g.id ? 'active' : ''}`;
-                        btn.innerText = `Gen ${g.generation_number}`;
-                        btn.onclick = () => selectGeneration(g.id, btn);
-                        container.appendChild(btn);
-
-                        if (idx === gens.length - 1 && !currentGenId) {
-                            btn.click();
-                        }
-                    });
-                });
-        }
-
-        function selectGeneration(genId, btnEl) {
-            currentGenId = genId;
-            document.querySelectorAll(".generation-tab").forEach(el => el.classList.remove("active"));
-            if (btnEl) btnEl.classList.add("active");
-
-            loadStrategies(genId);
-        }
-
-        function loadStrategies(genId) {
-            fetch(`/api/generations/${genId}/strategies`)
-                .then(r => r.json())
-                .then(strats => {
-                    const tbody = document.getElementById("leaderboardBody");
-                    tbody.innerHTML = "";
-                    if (strats.length === 0) {
-                        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-muted);">No strategies evaluated in this generation.</td></tr>`;
-                        return;
-                    }
-                    strats.forEach((s, idx) => {
-                        const tr = document.createElement("tr");
-                        tr.className = `clickable-row ${selectedStratId === s.id ? 'selected' : ''}`;
-                        tr.onclick = () => showStrategyDetail(s.id, tr);
-
-                        // Check train vs validation gap indicator warning (gap > 1.0 is alarming)
-                        const gapCell = s.agg_train_validation_gap > 1.0
-                            ? `<span class="gap-warning">&#9888; Overfit (${s.agg_train_validation_gap.toFixed(2)})</span>`
-                            : `<span>${s.agg_train_validation_gap.toFixed(2)}</span>`;
-
-                        tr.innerHTML = `
-                            <td>${idx + 1}</td>
-                            <td><strong>${s.name}</strong><br><span style="font-size:0.75rem; color:var(--text-muted);">${s.id}</span></td>
-                            <td>${s.agg_validation_sharpe.toFixed(2)}</td>
-                            <td>${(s.agg_validation_drawdown * 100).toFixed(1)}%</td>
-                            <td>${(s.agg_validation_win_rate * 100).toFixed(1)}%</td>
-                            <td>${gapCell}</td>
-                            <td>${s.mutation_type ? `${s.mutation_type} (${s.parent_id})` : 'Seed'}</td>
-                        `;
-                        tbody.appendChild(tr);
-                    });
-                });
-        }
-
-        function triggerRun() {
-            fetch("/api/runs/start", { method: "POST" })
-                .then(r => r.json())
-                .then(res => {
-                    alert(res.message);
-                    loadRunsList();
-                });
-        }
-
-        function showStrategyDetail(stratId, rowEl) {
-            selectedStratId = stratId;
-            document.querySelectorAll(".clickable-row").forEach(el => el.classList.remove("selected"));
-            if (rowEl) rowEl.classList.add("selected");
-
-            fetch(`/api/strategies/${stratId}`)
-                .then(r => r.json())
-                .then(s => {
-                    document.getElementById("drawerStratName").innerText = s.name;
-                    document.getElementById("detailSharpe").innerText = s.agg_validation_sharpe.toFixed(2);
-                    document.getElementById("detailDrawdown").innerText = `${(s.agg_validation_drawdown * 100).toFixed(1)}%`;
-                    document.getElementById("detailWinRate").innerText = `${(s.agg_validation_win_rate * 100).toFixed(1)}%`;
-
-                    // Generate readable rule description
-                    const ruleSentences = renderRulesToSentences(s.config);
-                    document.getElementById("rulesSentencesContainer").innerHTML = ruleSentences;
-
-                    // Plot train vs val equity curve
-                    plotEquityCurves(s.folds);
-
-                    // Render trade logs
-                    const tradeLogBody = document.getElementById("tradeLogBody");
-                    tradeLogBody.innerHTML = "";
-                    if (s.trades.length === 0) {
-                        tradeLogBody.innerHTML = `<tr><td colspan="7" style="text-align:center;">No trades recorded for this strategy.</td></tr>`;
-                    } else {
-                        s.trades.forEach(t => {
-                            const tr = document.createElement("tr");
-                            const pColor = t.profit_pct >= 0 ? "green" : "red";
-                            const profitText = t.profit_pct !== null ? `<span style="color:${pColor}; font-weight:600;">${(t.profit_pct * 100).toFixed(1)}%</span>` : "-";
-
-                            tr.innerHTML = `
-                                <td>${t.ticker}</td>
-                                <td>${t.entry_date.split("T")[0]}</td>
-                                <td>$${t.entry_price.toFixed(2)}</td>
-                                <td>${t.exit_date ? t.exit_date.split("T")[0] : "-"}</td>
-                                <td>${t.exit_price ? `$${t.exit_price.toFixed(2)}` : "-"}</td>
-                                <td>${profitText}</td>
-                                <td>${t.exit_reason || "-"}</td>
-                            `;
-                            tradeLogBody.appendChild(tr);
-                        });
-                    }
-
-                    // Open Drawer
-                    document.getElementById("drawerOverlay").style.display = "block";
-                    document.getElementById("strategyDrawer").classList.add("open");
-                });
-        }
-
-        function closeDrawer() {
-            document.getElementById("drawerOverlay").style.display = "none";
-            document.getElementById("strategyDrawer").classList.remove("open");
-        }
-
-        function renderRulesToSentences(config) {
-            function recurseRule(rule) {
-                if (rule.type === "and" || rule.type === "or") {
-                    const subParts = rule.rules.map(recurseRule);
-                    return `(${subParts.join(` <strong>${rule.type.toUpperCase()}</strong> `)})`;
-                } else if (rule.type === "not") {
-                    return `<strong>NOT</strong> (${recurseRule(rule.rules[0])})`;
-                } else {
-                    // simple condition
-                    const bVal = typeof rule.indicator_b === "object"
-                        ? `${rule.indicator_b.name}(${rule.indicator_b.period || ''})`
-                        : rule.indicator_b;
-                    return `${rule.indicator_a.name}(${rule.indicator_a.period || ''}) ${rule.operator} ${bVal}`;
-                }
-            }
-            const entryText = recurseRule(config.entry_rules);
-            const exitText = recurseRule(config.exit_rules);
-            return `
-                <p><strong>Entry Condition:</strong> Buy when ${entryText}</p>
-                <p style="margin-top:0.5rem;"><strong>Exit Condition:</strong> Sell when ${exitText}</p>
-            `;
-        }
-
-        function plotEquityCurves(folds) {
-            // Aggregate all fold curves or show the primary fold index 0 curve for simplicity
-            if (folds.length === 0) return;
-
-            const firstFold = folds[0];
-            const trainPoints = firstFold.train_equity_curve;
-            const valPoints = firstFold.val_equity_curve;
-
-            const labels = [];
-            const data = [];
-
-            trainPoints.forEach(pt => {
-                labels.push(pt.date);
-                data.push(pt.equity);
-            });
-            valPoints.forEach(pt => {
-                labels.push(pt.date);
-                data.push(pt.equity);
-            });
-
-            const ctx = document.getElementById("equityChartCanvas").getContext("2d");
-            if (myChart) {
-                myChart.destroy();
-            }
-
-            myChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Train Period Equity',
-                        data: data.slice(0, trainPoints.length),
-                        borderColor: '#C9A44C',
-                        backgroundColor: 'rgba(201, 164, 76, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.1
-                    }, {
-                        label: 'Validation Period Equity',
-                        data: Array(trainPoints.length).fill(null).concat(data.slice(trainPoints.length)),
-                        borderColor: '#1A1A1A',
-                        backgroundColor: 'rgba(26, 26, 26, 0.05)',
-                        borderWidth: 2,
-                        tension: 0.1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: false
-                        }
-                    }
-                }
-            });
-        }
-
-        function handleFileUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            uploadFile(file);
-        }
-
-        function uploadFile(file) {
-            const formData = new FormData();
-            formData.append("file", file);
-
-            fetch("/api/research/upload", {
-                method: "POST",
-                body: formData
-            })
-            .then(r => r.json())
-            .then(res => {
-                document.getElementById("previewBox").style.display = "block";
-                document.getElementById("previewJson").innerText = JSON.stringify(res.strategy, null, 2);
-            })
-            .catch(err => {
-                alert("Upload failed: " + err);
-            });
-        }
-
-        // Keyboard & Drag and Drop setup for uploadArea
-        window.addEventListener("load", () => {
-            const uploadArea = document.getElementById("uploadArea");
-            if (!uploadArea) return;
-
-            // Keyboard navigation
-            uploadArea.addEventListener("keydown", (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    document.getElementById("fileInput").click();
-                }
-            });
-
-            // Drag and drop handlers
-            uploadArea.addEventListener("dragover", (e) => {
-                e.preventDefault();
-                uploadArea.classList.add("dragover");
-            });
-
-            uploadArea.addEventListener("dragleave", (e) => {
-                e.preventDefault();
-                uploadArea.classList.remove("dragover");
-            });
-
-            uploadArea.addEventListener("drop", (e) => {
-                e.preventDefault();
-                uploadArea.classList.remove("dragover");
-                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                    uploadFile(e.dataTransfer.files[0]);
-                }
-            });
-        });
-    </script>
+    <!-- Load native ES6 modules for component modularity -->
+    <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
