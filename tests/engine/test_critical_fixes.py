@@ -141,7 +141,7 @@ def test_risk_per_trade_cap_sizing():
     assert len(trades) > 0
     t = trades[0]
     assert t["size"] == pytest.approx(200.0)
-    assert res["risk_cap_applied"] is True
+    assert res["risk_cap_applied_pct"] == 1.0
 
 
 def test_win_rate_matches_trades():
@@ -229,7 +229,52 @@ def test_missing_data_carry_forward():
     assert len(equity_history) == 3
 
     # On 2025-01-03, B has no data. It should carry forward 120.0 as last_known_price.
-    # Day 1 close: A close=101.0, B close=120.0. Equity = 110,500
-    # Day 2: B has no data, so it carries forward 120.0. A close=101.0. Total equity = 110,500.
+    # Entry day (Day 2): sequential same-day entries means first entry is sized against 100k (50k outlay),
+    # second entry is sized against remaining 50k (25k outlay).
+    # Depending on shuffle order, either A or B is entered first:
+    # If B first: Equity = Cash (25,000) + A_val (250 * 101.0) + B_val (500 * 120.0) = 110,250.
+    # If A first: Equity = Cash (25,000) + A_val (500 * 101.0) + B_val (250 * 120.0) = 105,500.
     day_3_equity = [pt["equity"] for pt in equity_history if pt["date"] == "2025-01-03"][0]
-    assert day_3_equity == pytest.approx(110500.0)
+    assert day_3_equity in [pytest.approx(110250.0), pytest.approx(105500.0)]
+
+
+def test_same_day_multi_entry_sizing():
+    # 2 tickers signaling entry on the same day with a risk-based stop-loss.
+    # Assert that sequential sizing occurs against the decremented equity figure.
+    idx = pd.to_datetime(["2025-01-01", "2025-01-02", "2025-01-03"])
+    df1 = pd.DataFrame({
+        "open":  [100.0, 100.0, 100.0],
+        "high":  [100.0, 100.0, 100.0],
+        "low":   [100.0, 100.0, 100.0],
+        "close": [101.0, 101.0, 101.0],
+        "volume": [1000] * 3
+    }, index=idx)
+    df2 = pd.DataFrame({
+        "open":  [100.0, 100.0, 100.0],
+        "high":  [100.0, 100.0, 100.0],
+        "low":   [100.0, 100.0, 100.0],
+        "close": [101.0, 101.0, 101.0],
+        "volume": [1000] * 3
+    }, index=idx)
+
+    source = SyntheticSource({"T1": df1, "T2": df2})
+    backtester = Backtester(source)
+
+    cfg_dict = make_base_config_dict()
+    cfg_dict["universe"] = ["T1", "T2"]
+    cfg_dict["max_concurrent_positions"] = 2
+    cfg_dict["position_sizing"]["value"] = 0.5
+    cfg_dict["risk_management"] = {"stop_loss_pct": 0.1}
+    cfg_dict["risk_per_trade_cap_pct"] = 0.02 # 2% risk cap
+
+    config = validate_strategy_config(cfg_dict)
+
+    res = backtester.run(config, "2025-01-01", "2025-01-03", initial_cash=100000.0)
+    trades = res["trades"]
+
+    # Since they execute on Day 2 Open:
+    # First trade: sized against 100k equity. Risk amount = 2,000. Risk per share = 100 * 0.1 = 10. Size = 200. Outlay = 20k.
+    # Second trade: sized against 80k equity. Risk amount = 1,600. Risk per share = 100 * 0.1 = 10. Size = 160. Outlay = 16k.
+    assert len(trades) == 2
+    sizes = sorted([t["size"] for t in trades])
+    assert sizes == [160.0, 200.0]

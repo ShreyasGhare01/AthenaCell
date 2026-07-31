@@ -195,7 +195,9 @@ class Backtester:
                 "win_rate": 0.0,
                 "equity_curve": [],
                 "trades": [],
-                "risk_cap_applied": False
+                "risk_cap_applied_pct": 0.0,
+                "risk_capped_entries": 0,
+                "total_entries": 0
             }
 
         # Compile unique union of business days across all dataframes
@@ -207,7 +209,9 @@ class Backtester:
                 "win_rate": 0.0,
                 "equity_curve": [],
                 "trades": [],
-                "risk_cap_applied": False
+                "risk_cap_applied_pct": 0.0,
+                "risk_capped_entries": 0,
+                "total_entries": 0
             }
 
         cash = initial_cash
@@ -218,6 +222,10 @@ class Backtester:
         # Track queued entries and exits for next-bar open execution
         queued_exits = [] # list of dicts: {"ticker": ticker, "reason": reason}
         queued_entries = [] # list of tickers
+
+        # Track risk cap application counts
+        total_entries = 0
+        risk_capped_entries = 0
 
         # Serialize entry/exit rules to simple dictionaries for evaluate_rule
         entry_rules_dict = config.entry_rules.model_dump()
@@ -285,8 +293,10 @@ class Backtester:
                 # Sizing logic
                 position_sizing_value = config.position_sizing.value
 
+                used_risk_sizing = False
                 if has_stop_loss and sl_price is not None:
                     # risk-based sizing
+                    used_risk_sizing = True
                     risk_cap = config.risk_per_trade_cap_pct
                     risk_amount = risk_cap * current_equity
                     risk_per_share = effective_entry_price - sl_price
@@ -306,7 +316,10 @@ class Backtester:
                     size = max_sizing_allocation / effective_entry_price
 
                     logger = logging.getLogger("athenacell")
-                    msg = f"Warning: Risk cap not applied for {ticker} because no stop-loss exists."
+                    if not has_stop_loss:
+                        msg = f"Warning: Risk cap not applied for {ticker} because no stop-loss configured."
+                    else:
+                        msg = f"Warning: Risk cap not applied for {ticker} because stop-loss configured but could not be computed for this entry (insufficient data)."
                     logger.warning(msg)
                     print(msg)
 
@@ -319,7 +332,9 @@ class Backtester:
                     size = 0.0
 
                 if size > 0:
-                    cash -= (size * effective_entry_price + config.commission)
+                    outlay = size * effective_entry_price + config.commission
+                    cash -= outlay
+                    current_equity -= outlay
                     positions[ticker] = {
                         "entry_price": effective_entry_price,
                         "entry_date": date,
@@ -328,6 +343,9 @@ class Backtester:
                         "take_profit": tp_price,
                         "last_known_price": effective_entry_price
                     }
+                    total_entries += 1
+                    if used_risk_sizing:
+                        risk_capped_entries += 1
             queued_entries.clear()
 
             # 3. Update current day's close valuations for held positions, and check signal triggers
@@ -420,7 +438,10 @@ class Backtester:
         sharpe_val = sharpe_calc.calculate(daily_returns, equity_vals)
         dd_val = dd_calc.calculate(daily_returns, equity_vals)
 
-        # Compute Win Rate directly from non-end_of_period trades as requested
+        # Note: Win Rate is a fundamentally trade-based metric. It is computed here directly
+        # from the trades log (excluding end_of_period trades) to prevent distortion, rather than
+        # being defined in the MetricRegistry under implementations.py, since the latter expects
+        # a daily_returns and equity_curve signature suited for curve-based metrics like Sharpe/MaxDrawdown.
         closed_trades = [t for t in trades_log if t["exit_reason"] != "end_of_period"]
         if closed_trades:
             winning_trades = [t for t in closed_trades if t["profit_pct"] > 0]
@@ -428,11 +449,15 @@ class Backtester:
         else:
             win_rate_val = 0.0
 
+        risk_cap_applied_pct = float(risk_capped_entries / total_entries) if total_entries > 0 else 0.0
+
         return {
             "sharpe": sharpe_val,
             "max_drawdown": dd_val,
             "win_rate": win_rate_val,
             "equity_curve": equity_history,
             "trades": trades_log,
-            "risk_cap_applied": has_stop_loss
+            "risk_cap_applied_pct": risk_cap_applied_pct,
+            "risk_capped_entries": risk_capped_entries,
+            "total_entries": total_entries
         }

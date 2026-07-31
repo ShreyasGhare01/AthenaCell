@@ -26,11 +26,9 @@ def test_metrics():
 
     sharpe = MetricRegistry.get_metric("sharpe")
     dd = MetricRegistry.get_metric("max_drawdown")
-    wr = MetricRegistry.get_metric("win_rate")
 
     assert sharpe.calculate(returns, equity) > 0
     assert dd.calculate(returns, equity) > 0
-    assert wr.calculate(returns, equity) == 0.6
 
 class MockSource:
     def fetch_data(self, ticker, start, end):

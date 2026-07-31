@@ -52,7 +52,7 @@ class DBStrategy(Base):
     agg_validation_drawdown = Column(Float, default=0.0)
     agg_validation_win_rate = Column(Float, default=0.0)
     agg_train_validation_gap = Column(Float, default=0.0) # gap indicator
-    risk_cap_applied = Column(Boolean, default=True)
+    risk_cap_applied_pct = Column(Float, default=0.0)
 
     # Relationships
     generation = relationship("DBGeneration", back_populates="strategies")

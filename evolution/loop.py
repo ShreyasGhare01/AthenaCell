@@ -162,6 +162,9 @@ class EvolutionLoop:
                     val_win_rates = []
                     train_sharpes = []
 
+                    global_total_entries = 0
+                    global_risk_capped_entries = 0
+
                     # Evaluate has_stop_loss property
                     has_stop_loss = (strat.risk_management.stop_loss_pct is not None) or (strat.risk_management.atr_stop_multiplier is not None)
 
@@ -186,6 +189,9 @@ class EvolutionLoop:
                         val_drawdowns.append(val_res["max_drawdown"])
                         val_win_rates.append(val_res["win_rate"])
                         train_sharpes.append(train_res["sharpe"])
+
+                        global_total_entries += val_res.get("total_entries", 0)
+                        global_risk_capped_entries += val_res.get("risk_capped_entries", 0)
 
                         # Store fold details
                         strat_folds_metrics.append({
@@ -227,6 +233,9 @@ class EvolutionLoop:
                     avg_train_sharpe = sum(train_sharpes) / len(train_sharpes) if train_sharpes else 0.0
                     agg_gap = max(0.0, avg_train_sharpe - agg_sharpe)
 
+                    # Calculate global risk cap applied ratio across folds
+                    global_risk_cap_pct = float(global_risk_capped_entries / global_total_entries) if global_total_entries > 0 else 0.0
+
                     # Persist Strategy Genome
                     p_id, m_type, m_reason = parent_info.get(strat.id, (None, None, None))
                     db_strat = DBStrategy(
@@ -241,7 +250,7 @@ class EvolutionLoop:
                         agg_validation_drawdown=agg_drawdown,
                         agg_validation_win_rate=agg_win_rate,
                         agg_train_validation_gap=agg_gap,
-                        risk_cap_applied=has_stop_loss
+                        risk_cap_applied_pct=global_risk_cap_pct
                     )
                     session.add(db_strat)
                     session.flush() # Flushes so strategy table contains records before children are referenced
