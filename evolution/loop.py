@@ -81,12 +81,18 @@ class EvolutionLoop:
             source_name = run_config["components"]["data_source"]
             validate_cross_source = run_config["components"].get("validate_cross_source", False)
             validation_threshold = run_config["components"].get("validation_threshold", 0.01)
+            validation_sample_rate = run_config["components"].get("validation_sample_rate", 0.1)
 
             data_source = self.data_loader.get_source(
                 source_name,
                 validate_cross_source=validate_cross_source,
-                validation_threshold=validation_threshold
+                validation_threshold=validation_threshold,
+                validation_sample_rate=validation_sample_rate
             )
+
+            # Set context for FallbackDataSource to write data quality warnings
+            if hasattr(data_source, "set_run_context"):
+                data_source.set_run_context(run_id=run_id, db_url=self.db_url)
 
             # Auto-warm up cash/parquet caches for all universe tickers
             for ticker in universe:
@@ -258,7 +264,8 @@ class EvolutionLoop:
                         agg_validation_drawdown=agg_drawdown,
                         agg_validation_win_rate=agg_win_rate,
                         agg_train_validation_gap=agg_gap,
-                        risk_cap_applied_pct=global_risk_cap_pct
+                        risk_cap_applied_pct=global_risk_cap_pct,
+                        validation_trade_count=global_total_entries
                     )
                     session.add(db_strat)
                     session.flush() # Flushes so strategy table contains records before children are referenced
@@ -331,8 +338,9 @@ class EvolutionLoop:
                     next_generation: List[StrategyConfig] = []
                     parent_info = {} # clear out for new gen
 
-                    # Keep Elite (Top 20% Survivors)
-                    elite_count = max(1, int(pop_size * 0.2))
+                    # Keep Elite (using dynamic elite_pct from selection policy if available, defaulting to 0.2)
+                    elite_pct = getattr(selection_policy, "elite_pct", 0.2)
+                    elite_count = max(1, int(pop_size * elite_pct))
                     elites = [x[0] for x in evaluated_population[:elite_count]]
 
                     # Duplicate elites with a clean new UUID ID (Moderate Fix #9)

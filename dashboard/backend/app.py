@@ -9,7 +9,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, B
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from storage.db import StorageManager, DBRun, DBGeneration, DBStrategy, DBStrategyFold, DBSimulatedTrade, DBAthenaLog
+from storage.db import StorageManager, DBRun, DBGeneration, DBStrategy, DBStrategyFold, DBSimulatedTrade, DBAthenaLog, DBDataQualityWarning
 from evolution.loop import EvolutionLoop
 from research.extractor import ResearchExtractor
 
@@ -161,6 +161,24 @@ async def resume_run(run_id: int):
     t.start()
 
     return {"run_id": run_id, "message": "Evolution task resumed in background."}
+
+@app.get("/api/runs/{run_id}/data_quality_warnings")
+async def list_data_quality_warnings(run_id: int):
+    session = storage.get_session()
+    warnings = session.query(DBDataQualityWarning).filter_by(run_id=run_id).order_by(DBDataQualityWarning.created_at.desc()).all()
+    res = []
+    for w in warnings:
+        res.append({
+            "id": w.id,
+            "ticker": w.ticker,
+            "date": w.date.isoformat() if w.date else None,
+            "source_a": w.source_a,
+            "source_b": w.source_b,
+            "divergence_pct": w.divergence_pct,
+            "created_at": w.created_at.isoformat() if w.created_at else None
+        })
+    session.close()
+    return res
 
 @app.get("/api/runs/{run_id}/generations")
 async def list_generations(run_id: int):

@@ -403,9 +403,21 @@
                 <h1>AthenaCell</h1>
             </div>
         </div>
-        <div class="run-status-indicator" id="runStatusContainer">
-            <div class="status-dot idle" id="statusDot"></div>
-            <span id="statusLabel">Idle</span>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <div id="dataQualityWarningBadge" style="display: none; align-items: center; gap: 0.3rem; background-color: var(--warning-red); color: white; padding: 0.4rem 0.8rem; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 0.85rem; position: relative;">
+                <span>⚠</span> <span id="warningCount">0</span>
+                <!-- Dropdown list of warnings -->
+                <div id="warningDropdown" style="display: none; position: absolute; top: 110%; right: 0; background-color: white; color: var(--text-dark); border: 2px solid var(--border-color); border-radius: 8px; width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1002; padding: 1rem; cursor: default;">
+                    <h4 style="font-family: 'Playfair Display', serif; margin-bottom: 0.5rem; border-bottom: 1.5px solid var(--bg-cream); padding-bottom: 0.3rem;">Data Quality Warnings</h4>
+                    <div id="warningListContent" style="max-height: 200px; overflow-y: auto; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; text-align: left;">
+                        <!-- warnings listed here -->
+                    </div>
+                </div>
+            </div>
+            <div class="run-status-indicator" id="runStatusContainer">
+                <div class="status-dot idle" id="statusDot"></div>
+                <span id="statusLabel">Idle</span>
+            </div>
         </div>
     </header>
 

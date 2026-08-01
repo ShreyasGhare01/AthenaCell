@@ -17,7 +17,8 @@ class DataLoader:
 
     @classmethod
     def get_source(cls, source_name: Union[str, List[str]], cache_dir: str = "data/cache",
-                   validate_cross_source: bool = False, validation_threshold: float = 0.01) -> DataSource:
+                   validate_cross_source: bool = False, validation_threshold: float = 0.01,
+                   validation_sample_rate: float = 0.1) -> DataSource:
         """
         Retrieves a DataSource instance. If a list of source names is passed, constructs
         a FallbackDataSource wrapping those sources in the specified priority order.
@@ -33,7 +34,8 @@ class DataLoader:
             return FallbackDataSource(
                 sources=sources,
                 validate_cross_source=validate_cross_source,
-                validation_threshold=validation_threshold
+                validation_threshold=validation_threshold,
+                validation_sample_rate=validation_sample_rate
             )
         else:
             if source_name not in cls._sources:
