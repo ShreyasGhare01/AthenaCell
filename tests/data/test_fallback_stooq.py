@@ -8,6 +8,7 @@ from data.sources.exceptions import (
     DataSourceError,
     DataSourceNoDataError,
     DataSourceConnectionError,
+    DataSourceRateLimitError,
     AllDataSourcesFailedError
 )
 from data.sources.yfinance_source import YFinanceSource
@@ -65,7 +66,7 @@ def test_stooq_source_anti_scraping_block(mock_get):
     mock_get.return_value = mock_resp
 
     source = StooqSource(cache_dir=TEMP_TEST_CACHE)
-    with pytest.raises(DataSourceConnectionError) as exc:
+    with pytest.raises(DataSourceRateLimitError) as exc:
         source.fetch_data("AAPL", "2023-01-01", "2023-01-02")
     assert "anti-scraping" in str(exc.value)
 
@@ -176,7 +177,8 @@ def test_fallback_data_source_cross_source_validation_divergence(mock_warn):
     fallback = FallbackDataSource(
         sources=[mock_primary, mock_secondary],
         validate_cross_source=True,
-        validation_threshold=0.01 # 1% threshold
+        validation_threshold=0.01, # 1% threshold
+        validation_sample_rate=1.0 # Force validation in test
     )
 
     df = fallback.fetch_data("AAPL", "2023-01-01", "2023-01-02")

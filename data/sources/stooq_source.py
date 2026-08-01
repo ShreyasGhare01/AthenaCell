@@ -71,15 +71,22 @@ class StooqSource(DataSource):
         except Exception as e:
             raise DataSourceConnectionError(f"Network error downloading {stooq_ticker} from Stooq: {e}") from e
 
+        if response.status_code == 429:
+            raise DataSourceRateLimitError("Stooq request rate limited (HTTP 429).")
+
         if response.status_code != 200:
             raise DataSourceConnectionError(f"Failed to fetch data from Stooq (HTTP {response.status_code}).")
+
+        # Check for unusually small/truncated response body (potential soft rate limit/throttling)
+        if isinstance(response.content, bytes) and len(response.content) < 150:
+            raise DataSourceRateLimitError("Stooq response unusually small/truncated (potential soft rate limit/throttling).")
 
         text = response.text.strip()
 
         # Check for browser verification or rate-limiting block html
         if "<html" in text.lower() or "<noscript" in text.lower() or "__verify" in text:
             # Stooq served browser verification challenge instead of CSV data
-            raise DataSourceConnectionError("Stooq request blocked by anti-scraping browser verification challenge.")
+            raise DataSourceRateLimitError("Stooq request blocked by anti-scraping browser verification challenge.")
 
         if not text or text.lower().startswith("not found") or text.lower().startswith("no data") or "close" not in text.lower():
             raise DataSourceNoDataError(f"No EOD data found for ticker {ticker} (Stooq ticker: {stooq_ticker}) from Stooq.")

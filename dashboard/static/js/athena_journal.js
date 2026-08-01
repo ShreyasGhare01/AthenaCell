@@ -45,15 +45,44 @@ class AthenaJournal {
         if (!container) return;
 
         if (text && text.trim()) {
-            container.innerText = text;
             if (card) {
                 card.style.display = "block";
             }
+
+            let entryText = text;
+            let warningsHtml = "";
+
+            if (entryText.startsWith("!!!WARNINGS: ")) {
+                const parts = entryText.split("!!!\n\n");
+                if (parts.length > 1) {
+                    const warnStr = parts[0].replace("!!!WARNINGS: ", "");
+                    const warnings = warnStr.split(" | ");
+
+                    warningsHtml = `
+                        <div style="background-color: #F8D7DA; color: #721C24; border: 1px solid #F5C6CB; padding: 0.8rem; border-radius: 6px; margin-bottom: 1rem; font-weight: bold; font-size: 0.85rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.3rem;">
+                                <span>⚠ Warning: Athena.md parsing issues detected — using defaults:</span>
+                            </div>
+                            <ul style="margin-left: 1.5rem; font-weight: normal; list-style-type: disc;">
+                                ${warnings.map(w => `<li>${w}</li>`).join("")}
+                            </ul>
+                        </div>
+                    `;
+                    entryText = parts.slice(1).join("!!!\n\n");
+                }
+            }
+
+            const escapedText = entryText
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+
+            container.innerHTML = warningsHtml + escapedText;
         } else {
-            container.innerText = "No Athena Selection log available for this generation.";
-            // If there's no log, we can still show the card but with a placeholder
+            container.innerHTML = "No Athena Selection log available for this generation.";
             if (card) {
-                // If it's the standard tournament selection, hide the card or keep it showing a message
                 card.style.display = "none";
             }
         }

@@ -19,6 +19,22 @@ class DBRun(Base):
 
     # Relationships
     generations = relationship("DBGeneration", back_populates="run", cascade="all, delete-orphan")
+    data_quality_warnings = relationship("DBDataQualityWarning", back_populates="run", cascade="all, delete-orphan")
+
+
+class DBDataQualityWarning(Base):
+    __tablename__ = "data_quality_warnings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
+    ticker = Column(String, nullable=False)
+    date = Column(DateTime, nullable=False)
+    source_a = Column(String, nullable=False)
+    source_b = Column(String, nullable=False)
+    divergence_pct = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    run = relationship("DBRun", back_populates="data_quality_warnings")
 
 class DBGeneration(Base):
     __tablename__ = "generations"
@@ -54,6 +70,7 @@ class DBStrategy(Base):
     agg_validation_win_rate = Column(Float, default=0.0)
     agg_train_validation_gap = Column(Float, default=0.0) # gap indicator
     risk_cap_applied_pct = Column(Float, default=0.0)
+    validation_trade_count = Column(Integer, default=0)
 
     # Relationships
     generation = relationship("DBGeneration", back_populates="strategies")

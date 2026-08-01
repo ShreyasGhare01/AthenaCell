@@ -11,12 +11,37 @@ class HistoryBoard {
     init() {
         this.loadRunsList();
 
-        // Refresh runs list when updates come via WebSocket
+        // Refresh runs list and warnings when updates come via WebSocket
         wsClient.addListener((data) => {
             if (data.status === "evolving" || data.status === "completed" || data.status === "failed") {
                 this.loadRunsList(true); // preserve active selection
+                if (this.currentRunId) {
+                    this.loadDataQualityWarnings(this.currentRunId);
+                }
             }
         });
+
+        // Set up warning dropdown click toggle
+        const badge = document.getElementById("dataQualityWarningBadge");
+        const dropdown = document.getElementById("warningDropdown");
+        if (badge && dropdown) {
+            badge.addEventListener("click", (e) => {
+                if (dropdown.style.display === "none" || !dropdown.style.display) {
+                    dropdown.style.display = "block";
+                } else {
+                    dropdown.style.display = "none";
+                }
+                e.stopPropagation();
+            });
+
+            document.addEventListener("click", () => {
+                dropdown.style.display = "none";
+            });
+
+            dropdown.addEventListener("click", (e) => {
+                e.stopPropagation();
+            });
+        }
     }
 
     loadRunsList(preserveSelection = false) {
@@ -49,6 +74,44 @@ class HistoryBoard {
         this.currentRunId = runId;
         document.querySelectorAll(".run-item").forEach(el => el.classList.remove("active"));
         this.loadGenerations(runId);
+        this.loadDataQualityWarnings(runId);
+    }
+
+    loadDataQualityWarnings(runId) {
+        const badge = document.getElementById("dataQualityWarningBadge");
+        const countSpan = document.getElementById("warningCount");
+        const contentDiv = document.getElementById("warningListContent");
+
+        if (!badge || !countSpan || !contentDiv) return;
+
+        fetch(`/api/runs/${runId}/data_quality_warnings`)
+            .then(r => r.json())
+            .then(warnings => {
+                if (warnings && warnings.length > 0) {
+                    badge.style.display = "flex";
+                    countSpan.innerText = warnings.length;
+
+                    contentDiv.innerHTML = warnings.map(w => {
+                        const dateStr = w.date ? w.date.split("T")[0] : "N/A";
+                        return `
+                            <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.4rem; margin-bottom: 0.4rem;">
+                                <strong>Ticker:</strong> ${w.ticker}<br>
+                                <strong>Date:</strong> ${dateStr}<br>
+                                <strong>Divergence:</strong> ${(w.divergence_pct * 100).toFixed(2)}%<br>
+                                <span style="font-size: 0.7rem; color: var(--text-muted);">${w.source_a} vs ${w.source_b}</span>
+                            </div>
+                        `;
+                    }).join("");
+                } else {
+                    badge.style.display = "none";
+                    countSpan.innerText = "0";
+                    contentDiv.innerHTML = `<div style="color: var(--text-muted);">No warnings detected.</div>`;
+                }
+            })
+            .catch(err => {
+                console.error("Error loading data quality warnings:", err);
+                badge.style.display = "none";
+            });
     }
 
     loadGenerations(runId) {
