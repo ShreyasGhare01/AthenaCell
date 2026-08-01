@@ -9,7 +9,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, B
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from storage.db import StorageManager, DBRun, DBGeneration, DBStrategy, DBStrategyFold, DBSimulatedTrade
+from storage.db import StorageManager, DBRun, DBGeneration, DBStrategy, DBStrategyFold, DBSimulatedTrade, DBAthenaLog
 from evolution.loop import EvolutionLoop
 from research.extractor import ResearchExtractor
 
@@ -194,6 +194,14 @@ async def list_strategies(gen_id: int):
             "agg_train_validation_gap": s.agg_train_validation_gap,
             "risk_cap_applied_pct": s.risk_cap_applied_pct
         })
+    session.close()
+    return res
+
+@app.get("/api/generations/{gen_id}/athena_log")
+async def get_athena_log(gen_id: int):
+    session = storage.get_session()
+    log = session.query(DBAthenaLog).filter_by(generation_id=gen_id).order_by(DBAthenaLog.created_at.desc()).first()
+    res = {"entry_text": log.entry_text if log else ""}
     session.close()
     return res
 

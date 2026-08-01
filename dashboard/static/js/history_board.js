@@ -1,5 +1,6 @@
 import { leaderboard } from './leaderboard.js';
 import { wsClient } from './websocket_client.js';
+import { athenaJournal } from './athena_journal.js';
 
 class HistoryBoard {
     constructor() {
@@ -78,6 +79,7 @@ class HistoryBoard {
         if (btnEl) btnEl.classList.add("active");
 
         leaderboard.loadStrategies(genId);
+        athenaJournal.loadJournal(genId);
     }
 }
 

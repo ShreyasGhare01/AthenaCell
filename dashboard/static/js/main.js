@@ -3,6 +3,7 @@ import { initControlBoard } from './control_board.js';
 import { historyBoard } from './history_board.js';
 import { strategyDrawer } from './strategy_drawer.js';
 import { researchLibrary } from './research_library.js';
+import { athenaJournal } from './athena_journal.js';
 
 window.addEventListener("load", () => {
     initHeader();
@@ -10,4 +11,5 @@ window.addEventListener("load", () => {
     historyBoard.init();
     strategyDrawer.init();
     researchLibrary.init();
+    athenaJournal.init();
 });

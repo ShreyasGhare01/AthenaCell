@@ -11,6 +11,7 @@ from engine.walk_forward import generate_rolling_folds
 from engine.backtester import Backtester
 from strategies.schema import StrategyConfig
 from evolution.mutation.operators import RandomStrategyGenerator, EvolutionRegistry
+from evolution.athena import get_selection_policy
 
 class EvolutionLoop:
     """
@@ -78,7 +79,14 @@ class EvolutionLoop:
                 raise ValueError("No rolling folds generated with current date/month configs.")
 
             source_name = run_config["components"]["data_source"]
-            data_source = self.data_loader.get_source(source_name)
+            validate_cross_source = run_config["components"].get("validate_cross_source", False)
+            validation_threshold = run_config["components"].get("validation_threshold", 0.01)
+
+            data_source = self.data_loader.get_source(
+                source_name,
+                validate_cross_source=validate_cross_source,
+                validation_threshold=validation_threshold
+            )
 
             # Auto-warm up cash/parquet caches for all universe tickers
             for ticker in universe:
@@ -295,8 +303,17 @@ class EvolutionLoop:
 
                 session.commit()
 
-                # Sort and Rank based on Validation Sharpe Ratio (Highest to Lowest)
-                evaluated_population.sort(key=lambda x: x[1], reverse=True)
+                # Pluggable Selection Policy ranking
+                selection_strategy = run_config["components"].get("selection_strategy", "tournament")
+                selection_policy = get_selection_policy(selection_strategy)
+
+                # rank_and_select will rank, log, write journal DB records, and return ranked (StrategyConfig, score)
+                evaluated_population = selection_policy.rank_and_select(
+                    session=session,
+                    db_gen=db_gen,
+                    evaluated_population=evaluated_population,
+                    broadcast_queue=broadcast_queue
+                )
 
                 # Push progress update via WebSocket callback (queue)
                 if broadcast_queue:
