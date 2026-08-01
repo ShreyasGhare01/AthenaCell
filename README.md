@@ -89,3 +89,53 @@ You can use the built-in CLI backup and restore commands to safely copy your wor
    python main.py --restore ~/path/to/backup_dir
    ```
    *(Include `--include-cache` if you also wish to restore cached parquet files from that backup).*
+
+---
+
+## 📈 Redundant Data Sources & Fallback Mechanism
+
+AthenaCell features a robust multi-source fallback mechanism to ensure stock EOD data is always successfully loaded without relying on a single provider.
+
+### Configured Sources
+- **YFinanceSource (`yfinance`)**: The default primary EOD provider (loads EOD data and caches as Parquet locally).
+- **StooqSource (`stooq`)**: Fallback provider using Stooq's free CSV historical API. Automatically appends the `.US` suffix to US equity tickers and handles anti-scraping checks.
+
+### Fallback Priority Setup
+Inside `config/run_config.yaml`, you can configure the data source as an ordered priority list:
+```yaml
+components:
+  data_source: ["yfinance", "stooq"]
+```
+When configured with a list, `FallbackDataSource` sequentially attempts to load each ticker from the sources in the specified order. If a source fails due to empty returns or network timeout, the fallback logic logs the warning and automatically transitions to the next provider.
+
+### Cross-Source Validation
+When multiple sources are enabled, you can optionally enable lightweight closing price validation:
+```yaml
+components:
+  validate_cross_source: true
+  validation_threshold: 0.01 # 1% divergence trigger
+```
+If enabled, when a ticker is fetched from the primary source, the last ~30 days are fetched from the secondary source as well. If their EOD closing prices diverge by more than the threshold, a clear warning log is printed and logged, signaling potential adjustments differences.
+
+---
+
+## 🦉 Athena Selection Policy & Lead Selection Agent
+
+Athena is a deterministic, risk-and-overfit-aware Lead Selection Agent guided by a markdown philosophy file (`Athena.md`).
+
+### Athena Scoring Philosophy (`Athena.md`)
+- **Weights**: Configures relative scoring weights for validation Sharpe ratio, validation max drawdown, train-vs-validation Sharpe gap, and risk cap applied percentage.
+- **Rules**: Implements deterministic promotions/demotions beyond raw score, e.g.:
+  - **Overfit Penalty**: Deducts points if the train-validation gap is too high.
+  - **Risk Discipline Bonus**: Adds points if a high ratio of trades utilized active risk caps.
+
+To activate Athena's selection policy, set the selection strategy inside `config/run_config.yaml`:
+```yaml
+components:
+  selection_strategy: "athena"
+```
+
+### Athena Selection Journals
+Upon completing each generation's scoring, Athena writes a plain-language journal entry detailing her promotional and demotional rationale to the database. These are generated via Claude (Anthropic API) when online, and fall back to a rich, deterministic templated narrative when offline.
+
+Journal entries appear live on the dashboard within the dedicated **Athena Selection Journal** panel!

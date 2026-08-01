@@ -2,14 +2,19 @@ import os
 import pandas as pd
 import yfinance as yf
 from data.sources.base import DataSource
+from data.sources.exceptions import DataSourceNoDataError, DataSourceConnectionError
 
 class YFinanceSource(DataSource):
     """
     A concrete DataSource using yfinance.
-    Saves historical data locally as Parquet files under `data/cache/` to minimize rate-limiting and ensure offline functionality.
+    Saves historical data locally as Parquet files under `data/cache/yfinance/` to minimize rate-limiting and ensure offline functionality.
     """
     def __init__(self, cache_dir: str = "data/cache"):
-        self.cache_dir = cache_dir
+        # Namespace standard default cache to subfolder to keep sources separate
+        if cache_dir == "data/cache":
+            self.cache_dir = os.path.join(cache_dir, "yfinance")
+        else:
+            self.cache_dir = cache_dir
         os.makedirs(self.cache_dir, exist_ok=True)
 
     def _get_cache_filepath(self, ticker: str) -> str:
@@ -45,10 +50,13 @@ class YFinanceSource(DataSource):
         margin_end = (end_ts + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
 
         print(f"Downloading {ticker} from yfinance: {margin_start} to {margin_end}...")
-        df_yf = yf.download(ticker, start=margin_start, end=margin_end, progress=False, auto_adjust=True)
+        try:
+            df_yf = yf.download(ticker, start=margin_start, end=margin_end, progress=False, auto_adjust=True)
+        except Exception as e:
+            raise DataSourceConnectionError(f"Network error downloading {ticker} from yfinance: {e}") from e
 
         if df_yf.empty:
-            raise ValueError(f"No data returned for ticker {ticker} from yfinance.")
+            raise DataSourceNoDataError(f"No data returned for ticker {ticker} from yfinance.")
 
         # Clean columns and index
         # Some yfinance returns MultiIndex if downloaded with a list, but we requested a string.

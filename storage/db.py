@@ -31,6 +31,7 @@ class DBGeneration(Base):
     # Relationships
     run = relationship("DBRun", back_populates="generations")
     strategies = relationship("DBStrategy", back_populates="generation", cascade="all, delete-orphan")
+    athena_logs = relationship("DBAthenaLog", back_populates="generation", cascade="all, delete-orphan")
 
 class DBStrategy(Base):
     __tablename__ = "strategies"
@@ -105,6 +106,16 @@ class DBSimulatedTrade(Base):
     exit_reason = Column(String, nullable=True) # "rule", "stop_loss", "take_profit", "end_of_period"
 
     strategy = relationship("DBStrategy", back_populates="trades")
+
+class DBAthenaLog(Base):
+    __tablename__ = "athena_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    generation_id = Column(Integer, ForeignKey("generations.id"), nullable=False)
+    entry_text = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    generation = relationship("DBGeneration", back_populates="athena_logs")
 
 
 # Database initializer

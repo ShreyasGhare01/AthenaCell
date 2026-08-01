@@ -18,7 +18,14 @@ walk_forward:
 
 # Pluggable Component Registry Selection
 components:
+  # To use multiple redundant sources, specify an ordered list:
+  # data_source: ["yfinance", "stooq"]
+  # To enable cross-source closing price validation (warns if prices diverge > 1%):
+  # validate_cross_source: true
+  # validation_threshold: 0.01
   data_source: "yfinance"
+
+  # Selection Policy options: "tournament" (strictly raw validation Sharpe) or "athena" (Lead Selection Agent scoring/rules)
   selection_strategy: "tournament"
   primary_scoring_metric: "sharpe"
   metrics:
