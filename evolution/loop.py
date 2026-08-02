@@ -92,7 +92,7 @@ class EvolutionLoop:
 
             # Set context for FallbackDataSource to write data quality warnings
             if hasattr(data_source, "set_run_context"):
-                data_source.set_run_context(run_id=run_id, db_url=self.db_url)
+                data_source.set_run_context(run_id=run_id, storage=self.storage)
 
             # Auto-warm up cash/parquet caches for all universe tickers
             for ticker in universe:
