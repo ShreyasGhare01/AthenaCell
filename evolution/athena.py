@@ -191,6 +191,8 @@ class AthenaSelectionPolicy(SelectionPolicy):
                 raw_risk_caps.append(db_strat.risk_cap_applied_pct)
 
         def normalize_series(values: List[float]) -> dict:
+            # Memoized by raw value (not index) — ties in a metric correctly
+            # collapse to the same normalized score, this is intentional.
             if not values:
                 return {}
             v_min = min(values)

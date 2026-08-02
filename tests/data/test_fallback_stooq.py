@@ -205,3 +205,54 @@ def test_data_loader_build_behavior():
     assert isinstance(src_list.sources[1], StooqSource)
     assert src_list.sources[0].cache_dir == os.path.join(TEMP_TEST_CACHE, "yfinance")
     assert src_list.sources[1].cache_dir == os.path.join(TEMP_TEST_CACHE, "stooq")
+
+
+def test_fallback_data_source_storage_manager_integration():
+    from storage.db import StorageManager, DBRun, DBDataQualityWarning
+    # Create SQLite in-memory StorageManager
+    storage = StorageManager(db_url="sqlite:///:memory:")
+
+    # Create dummy run
+    with storage.get_session() as session:
+        run = DBRun(name="Test Run", config={})
+        session.add(run)
+        session.commit()
+        run_id = run.id
+
+    mock_primary = MagicMock()
+    mock_secondary = MagicMock()
+
+    # Define primary data
+    p_df = pd.DataFrame(
+        {"open": [10.0, 10.0], "high": [11.0, 11.0], "low": [9.0, 9.0], "close": [100.0, 100.0], "volume": [100, 100]},
+        index=pd.to_datetime(["2023-01-01", "2023-01-02"])
+    )
+    mock_primary.fetch_data.return_value = p_df
+
+    # Define secondary data with 5% divergence on 2023-01-02
+    s_df = pd.DataFrame(
+        {"open": [10.0, 10.0], "high": [11.0, 11.0], "low": [9.0, 9.0], "close": [100.0, 95.0], "volume": [100, 100]},
+        index=pd.to_datetime(["2023-01-01", "2023-01-02"])
+    )
+    mock_secondary.fetch_data.return_value = s_df
+
+    fallback = FallbackDataSource(
+        sources=[mock_primary, mock_secondary],
+        validate_cross_source=True,
+        validation_threshold=0.01,
+        validation_sample_rate=1.0
+    )
+
+    fallback.set_run_context(run_id=run_id, storage=storage)
+    fallback.fetch_data("AAPL", "2023-01-01", "2023-01-02")
+
+    # Assert that warning was correctly saved in the DB
+    with storage.get_session() as session:
+        warnings = session.query(DBDataQualityWarning).all()
+        assert len(warnings) == 1
+        warn = warnings[0]
+        assert warn.run_id == run_id
+        assert warn.ticker == "AAPL"
+        assert warn.source_a == "MagicMock"
+        assert warn.source_b == "MagicMock"
+        assert abs(warn.divergence_pct - 0.05) < 1e-6

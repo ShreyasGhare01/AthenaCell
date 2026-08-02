@@ -4,6 +4,7 @@ import pandas as pd
 from typing import List, Optional
 from data.sources.base import DataSource
 from data.sources.exceptions import DataSourceError, AllDataSourcesFailedError
+from storage.db import StorageManager
 
 logger = logging.getLogger("athenacell")
 
@@ -22,11 +23,11 @@ class FallbackDataSource(DataSource):
         self.validation_threshold = validation_threshold
         self.validation_sample_rate = validation_sample_rate
         self.run_id: Optional[int] = None
-        self.db_url: Optional[str] = None
+        self.storage: Optional[StorageManager] = None
 
-    def set_run_context(self, run_id: int, db_url: str):
+    def set_run_context(self, run_id: int, storage: StorageManager):
         self.run_id = run_id
-        self.db_url = db_url
+        self.storage = storage
 
     def fetch_data(self, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
         failures = []
@@ -115,12 +116,11 @@ class FallbackDataSource(DataSource):
                         logger.warning(warn_msg)
                         print(warn_msg)
 
-                        # Write to DBDataQualityWarning if run_id and db_url are configured
-                        if self.run_id is not None and self.db_url:
+                        # Write to DBDataQualityWarning if run_id and storage are configured
+                        if self.run_id is not None and self.storage is not None:
                             try:
-                                from storage.db import StorageManager, DBDataQualityWarning
-                                storage = StorageManager(db_url=self.db_url)
-                                with storage.get_session() as session:
+                                from storage.db import DBDataQualityWarning
+                                with self.storage.get_session() as session:
                                     warning_record = DBDataQualityWarning(
                                         run_id=self.run_id,
                                         ticker=ticker,
